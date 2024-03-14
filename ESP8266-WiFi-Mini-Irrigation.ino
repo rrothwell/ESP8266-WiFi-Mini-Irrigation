@@ -13,10 +13,14 @@
 // Web server to control relay: 
 // https://blog.lindsaystrategic.com/2018/01/04/hw-655-esp-01-relay-board/
 // https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiManualWebServer/WiFiManualWebServer.ino
+// Flash file system.
+// https://arduino-esp8266.readthedocs.io/en/latest/filesystem.html
 
 #include <ESP8266WiFi.h>
 #include "RTClib.h"
-#define DATETIME_ON_FIRST_RUN
+#include "LittleFS.h"
+
+#define INIT_DATETIME_ON_FIRST_RUN
  
 const char* ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
 const char* password = "##########"; // fill in here your router or wifi password
@@ -150,6 +154,7 @@ void setup()
   initWebServer();
   validateIrrigationSchedule(defaultSchedule);
   initIrrigationSchedule(defaultSchedule);
+  LittleFS.begin();
 }
  
 void loop() 
@@ -273,7 +278,7 @@ void initRTC()
   {
     Serial.println("RTC is not running. ");
     Serial.println("Initialise the datetime on new RTC or battery replacement.");
-  #ifdef DATETIME_ON_FIRST_RUN
+  #ifdef INIT_DATETIME_ON_FIRST_RUN
     // Use datetime at time of compilation.
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   #else
