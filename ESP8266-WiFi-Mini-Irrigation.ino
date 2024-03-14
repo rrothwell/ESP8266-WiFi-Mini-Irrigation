@@ -18,8 +18,6 @@
 #include "RTClib.h"
 #define DATETIME_ON_FIRST_RUN
  
-// const char* ssid = "NergerNet"; // fill in here your router or wifi SSID
-//const char* ssid = "NETGEAR87"; // fill in here your router or wifi SSID
 const char* ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
 const char* password = "##########"; // fill in here your router or wifi password
 
