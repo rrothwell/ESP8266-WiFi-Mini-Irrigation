@@ -21,9 +21,14 @@
 #include "LittleFS.h"
 
 #define INIT_DATETIME_ON_FIRST_RUN
- 
-const char* ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
-const char* password = "##########"; // fill in here your router or wifi password
+
+// The SSID and WiFi password are now loaded from the flash file system.
+// The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool. 
+// This tool, at March 2024, needs to be used umder legacy Arduino IDE version 1.8.
+// The file content is like: "NETGEAR87_EXT\r\l######
+
+//String ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
+//String password = "##########"; // fill in here your router or wifi password
 
 // Shield pin assignments.
 // Schematic and pinouts.
@@ -150,11 +155,15 @@ void setup()
   Serial.println();
   pinMode(RELAY_PIN, OUTPUT);
   switchRelay(relayState);
+  String ssid; // fill in here your router or wifi SSID
+  String password; // fill in here your router or wifi password
+  initConfig(ssid, password);
+  //Serial.print("SSID: "); Serial.println(ssid);
+  //Serial.print("Password: "); Serial.println(password);
   initRTC();
-  initWebServer();
+  initWebServer(ssid, password);
   validateIrrigationSchedule(defaultSchedule);
   initIrrigationSchedule(defaultSchedule);
-  LittleFS.begin();
 }
  
 void loop() 
@@ -234,6 +243,43 @@ void loop()
   }
 }
 
+void initConfig(String &ssid, String &password)
+{
+  LittleFSConfig fsConfig;
+  fsConfig.setAutoFormat(false);
+  LittleFS.setConfig(fsConfig);  
+  bool isFSMounted = LittleFS.begin();
+  if (isFSMounted)
+  {
+    File fileHandle = LittleFS.open(F("config.txt"), "r");
+    if (fileHandle)
+    {
+      String fileContents;
+      // Read an byte as an int at a time, then treat it as a char.
+      while (fileHandle.available())
+      {
+        fileContents += static_cast<char>(fileHandle.read());
+      }
+      // Find the CR, to extract the SSID.
+      int lineBreakIndex = fileContents.indexOf('\r');
+      ssid = fileContents.substring(0 ,lineBreakIndex);
+      ssid.trim();
+      // Skip over the CR/LF to extract the password.
+      password = fileContents.substring(lineBreakIndex + 2);
+      password.trim();
+    }
+    else
+    {
+      Serial.println("File open failed. ");
+    }
+  }
+  else
+  {
+    Serial.println(F("Ünable to mount flash file system."));
+    Serial.flush();
+    abort();
+  };
+}
 
 void initRTC()
 {
@@ -320,7 +366,7 @@ String currentTime()
     }
  }
 
-void initWebServer()
+void initWebServer(const String &ssid, const String &password)
 {
   // Connect to WiFi network
   Serial.println();
@@ -511,4 +557,3 @@ void mist(bool isMisting)
   DateTime now = rtc.now();
   Serial.println(F("Misting ") + mistMessage + String(now.hour()) + F(":") + String(now.minute()) + F(":") + String(now.second())) ;
 }
-
