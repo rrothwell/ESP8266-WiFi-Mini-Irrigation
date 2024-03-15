@@ -209,29 +209,7 @@ void loop()
      }
     else if (request.indexOf("schedule=Submit") != -1)  
     {
-      int beginQueryIndex = request.indexOf("?");
-      int endQueryIndex = request.indexOf("HTTP");
-      String queryCollection;
-      if (beginQueryIndex != -1 && endQueryIndex != -1)
-      {
-          queryCollection = request.substring(beginQueryIndex + 1, endQueryIndex - 1);
-          Serial.println(queryCollection); Serial.print(beginQueryIndex); Serial.print(F(" to ")); Serial.println(endQueryIndex);
-          queryCollection.trim();
-          Serial.println(queryCollection);
-          schedule.irrigationBeginHours = extractQueryValue(queryCollection, "irrigationBeginHours").toInt();
-          schedule.irrigationDurationHours = extractQueryValue(queryCollection, "irrigationDurationHours").toInt();
-          schedule.mistPeriodMinutes = extractQueryValue(queryCollection, "mistPeriodMinutes").toInt();
-          schedule.mistDurationSeconds = extractQueryValue(queryCollection, "mistDurationSeconds").toInt();
-          Serial.println(F("Found schedule:"));
-          Serial.println(schedule.irrigationBeginHours);
-          Serial.println(schedule.irrigationDurationHours);
-          Serial.println(schedule.mistPeriodMinutes);
-          Serial.println(schedule.mistDurationSeconds);
-      }
-      else 
-      {
-        Serial.print(F("The request is malformed: ")); Serial.println(request);
-      }
+      updateSchedule(request, schedule);
     }
     else
     {
@@ -637,6 +615,32 @@ String generateForm(const Schedule& schedule)
   return htmlForm;
 }
 
+void updateSchedule(const String &request, Schedule &schedule)
+{
+    int beginQueryIndex = request.indexOf("?");
+    int endQueryIndex = request.indexOf("HTTP");
+    String queryCollection;
+    if (beginQueryIndex != -1 && endQueryIndex != -1)
+    {
+        queryCollection = request.substring(beginQueryIndex + 1, endQueryIndex - 1);
+        Serial.println(queryCollection); Serial.print(beginQueryIndex); Serial.print(F(" to ")); Serial.println(endQueryIndex);
+        queryCollection.trim();
+        Serial.println(queryCollection);
+        schedule.irrigationBeginHours = extractQueryValue(queryCollection, "irrigationBeginHours").toInt();
+        schedule.irrigationDurationHours = extractQueryValue(queryCollection, "irrigationDurationHours").toInt();
+        schedule.mistPeriodMinutes = extractQueryValue(queryCollection, "mistPeriodMinutes").toInt();
+        schedule.mistDurationSeconds = extractQueryValue(queryCollection, "mistDurationSeconds").toInt();
+        Serial.println(F("Found schedule:"));
+        Serial.println(schedule.irrigationBeginHours);
+        Serial.println(schedule.irrigationDurationHours);
+        Serial.println(schedule.mistPeriodMinutes);
+        Serial.println(schedule.mistDurationSeconds);
+    }
+    else 
+    {
+      Serial.print(F("The request is malformed: ")); Serial.println(request);
+    } 
+}
 
 void validateIrrigationSchedule(const Schedule &schedule)
 {
