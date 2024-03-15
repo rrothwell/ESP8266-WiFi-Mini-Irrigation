@@ -23,9 +23,11 @@
 #define INIT_DATETIME_ON_FIRST_RUN
 
 // The SSID and WiFi password are now loaded from the flash file system.
-// The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool. 
+// The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool.
+// This tool is installedd into the Arduino IDE. 
 // This tool, at March 2024, needs to be used umder legacy Arduino IDE version 1.8.
-// The file content is like: "NETGEAR87_EXT\r\l######
+// The file content is like: "NETGEAR87_EXT\r\l######.
+// In other words lines separated by CR/LF.
 
 //String ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
 //String password = "##########"; // fill in here your router or wifi password
