@@ -123,8 +123,8 @@ RTC_DS1307 rtc;
   Schedule defaultSchedule =
   {
     10, // beginIrrigationHours
-    8,  // irrigationDurationHours
-    10, // mistPeriodMinutes
+    4,  // irrigationDurationHours
+    20, // mistPeriodMinutes
     5   // mistDurationSeconds
   };
 
