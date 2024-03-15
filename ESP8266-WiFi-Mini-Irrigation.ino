@@ -313,7 +313,7 @@ boolean initConfig(String &ssid, String &password, Schedule &schedule)
 //      Serial.print("mistPeriodMinutes: "); Serial.println(mistPeriodMinutesStr);
 //      Serial.print("mistDurationSeconds: "); Serial.println(mistDurationSecondsStr);
 
-      schedule.irrigationBeginHours = mistDurationSecondsStr.toInt();
+      schedule.irrigationBeginHours = irrigationBeginHoursStr.toInt();
       schedule.irrigationDurationHours = irrigationDurationHoursStr.toInt();
       schedule.mistPeriodMinutes = mistPeriodMinutesStr.toInt();
       schedule.mistDurationSeconds = mistDurationSecondsStr.toInt();
@@ -428,13 +428,13 @@ void initRTC()
   while (!rtc.begin())
   {
     rtcRetryIndex++;
-    // Serial.print("RTC retry. "); Serial.println(rtcRetryIndex);
+    Serial.print("RTC retry. "); Serial.println(rtcRetryIndex);
     if (rtcRetryIndex >= rtcRetryCount)
     {
       isSuccess = false;
       break;
     }
-    delay(20);
+    delay(100);
   }
   
   if (isSuccess)
@@ -578,7 +578,7 @@ String generateSchedule(const Schedule& schedule)
   String htmlSchedule = F("<br>Schedule: ");
   String scheduleItems[] = 
     {
-      F("&nbsp;Irrigation start (hour): ") + String(schedule.irrigationBeginHours),
+      F("&nbsp;Irrigation begin (hour): ") + String(schedule.irrigationBeginHours),
       F("&nbsp;Irrigation duration (hours): ") + String(schedule.irrigationDurationHours),
       F("&nbsp;Mist period (minutes): ") + String(schedule.mistPeriodMinutes),
       F("&nbsp;Mist duration (seconds): ") + String(schedule.mistDurationSeconds)
@@ -606,7 +606,7 @@ String generateForm(const Schedule& schedule)
     
   String scheduleLabels[] = 
     {
-      F("&nbsp;Irrigation start (hour):&nbsp;"),
+      F("&nbsp;Irrigation begin (hour):&nbsp;"),
       F("&nbsp;Irrigation duration (hours):&nbsp;"),
       F("&nbsp;Mist period (minutes):&nbsp;"),
       F("&nbsp;Mist duration (seconds):&nbsp;")
