@@ -29,8 +29,9 @@
 // The file content is like: "NETGEAR87_EXT\r\l######.
 // In other words lines separated by CR/LF.
 
-//String ssid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
-//String password = "##########"; // fill in here your router or wifi password
+// Do not commit to a public repo with valid credentials here.
+String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
+String defaultPassword = "##########"; // fill in here your router or wifi password
 
 // Shield pin assignments.
 // Schematic and pinouts.
@@ -130,6 +131,8 @@ RTC_DS1307 rtc;
     5   // mistDurationSeconds
   };
 
+  Schedule schedule;
+
   MistEvent mistToday;
   IrrigationEvent waterToday;
 
@@ -159,13 +162,18 @@ void setup()
   switchRelay(relayState);
   String ssid; // fill in here your router or wifi SSID
   String password; // fill in here your router or wifi password
-  initConfig(ssid, password);
-  //Serial.print("SSID: "); Serial.println(ssid);
-  //Serial.print("Password: "); Serial.println(password);
-  initRTC();
+  if (!initConfig(ssid, password, schedule))
+  {
+    ssid = defaultSsid;
+    password = defaultPassword;
+    schedule = defaultSchedule;
+  }
+  // Serial.print("SSID: "); Serial.println(ssid);
+  // Serial.print("Password: "); Serial.println(password);
+  initRTC(); 
   initWebServer(ssid, password);
-  validateIrrigationSchedule(defaultSchedule);
-  initIrrigationSchedule(defaultSchedule);
+  validateIrrigationSchedule(schedule);
+  initIrrigationSchedule(schedule);
 }
  
 void loop() 
@@ -215,7 +223,7 @@ void loop()
     // Regenerate and send web page regardless of 
     // the validity of the request.
     // Use the stored relay state.
-    browser.println(generateResponse(relayState, automationStatus, defaultSchedule));
+    browser.println(generateResponse(relayState, automationStatus, schedule));
 
     Serial.println("Web client disconnected.");
     Serial.println("");
@@ -239,14 +247,15 @@ void loop()
         break;
     case AUTO:
     default:
-        irrigate(defaultSchedule);
+        irrigate(schedule);
         // Nothing
         break;
   }
 }
 
-void initConfig(String &ssid, String &password)
+boolean initConfig(String &ssid, String &password, Schedule &schedule)
 {
+  boolean isConfigFileValid = false;
   LittleFSConfig fsConfig;
   fsConfig.setAutoFormat(false);
   LittleFS.setConfig(fsConfig);  
@@ -262,13 +271,24 @@ void initConfig(String &ssid, String &password)
       {
         fileContents += static_cast<char>(fileHandle.read());
       }
-      // Find the CR, to extract the SSID.
-      int lineBreakIndex = fileContents.indexOf('\r');
-      ssid = fileContents.substring(0 ,lineBreakIndex);
-      ssid.trim();
-      // Skip over the CR/LF to extract the password.
-      password = fileContents.substring(lineBreakIndex + 2);
-      password.trim();
+      ssid = extractPropertyValue(fileContents, "SSID");
+      password = extractPropertyValue(fileContents, "password");
+      
+      String beginIrrigationHoursStr = extractPropertyValue(fileContents, "beginIrrigationHours");
+      String irrigationDurationHoursStr = extractPropertyValue(fileContents, "irrigationDurationHours");
+      String mistPeriodMinutesStr = extractPropertyValue(fileContents, "mistPeriodMinutes");
+      String mistDurationSecondsStr = extractPropertyValue(fileContents, "mistDurationSeconds");
+
+//      Serial.print("beginIrrigationHours: "); Serial.println(beginIrrigationHoursStr);
+//      Serial.print("irrigationDurationHours: "); Serial.println(irrigationDurationHoursStr);
+//      Serial.print("mistPeriodMinutes: "); Serial.println(mistPeriodMinutesStr);
+//      Serial.print("mistDurationSeconds: "); Serial.println(mistDurationSecondsStr);
+
+      schedule.beginIrrigationHours = mistDurationSecondsStr.toInt();
+      schedule.irrigationDurationHours = irrigationDurationHoursStr.toInt();
+      schedule.mistPeriodMinutes = mistPeriodMinutesStr.toInt();
+      schedule.mistDurationSeconds = mistDurationSecondsStr.toInt();
+      isConfigFileValid = true;
     }
     else
     {
@@ -277,10 +297,49 @@ void initConfig(String &ssid, String &password)
   }
   else
   {
-    Serial.println(F("Ünable to mount flash file system."));
+    Serial.println(F("Unable to mount flash file system."));
     Serial.flush();
     abort();
   };
+  return isConfigFileValid;
+}
+
+// Supply a property name without the colon delimiter.
+// Property collection is a string with format:
+// name0: value0
+// name1: value1
+// name2: value2
+// (blank line optional)
+String extractPropertyValue(const String &propertyCollection, const String &propertyName)
+{
+    String value;
+    
+    // Find the name, to extract the value.
+    String propertyMarker = propertyName  + ":";
+    
+    // Serial.print("propertyMarker: "); Serial.println(propertyMarker);
+    // Serial.print("propertyCollection: "); Serial.println(propertyCollection);
+
+    int propertyIndex = propertyCollection.indexOf(propertyMarker);
+    if (propertyIndex != -1)
+    {
+      int valueIndex = propertyIndex + propertyMarker.length();
+      int lineBreakIndex = propertyCollection.indexOf('\r', valueIndex);
+      if (lineBreakIndex == -1)
+      {
+        value = propertyCollection.substring(valueIndex);
+      }
+      else
+      {
+        value = propertyCollection.substring(valueIndex, lineBreakIndex);
+      }
+      value.trim();
+    }
+    else
+    {
+      Serial.print(F("Property not found in file: ")); Serial.println(propertyName);
+    }
+    return value;
 }
 
 void initRTC()
