@@ -26,8 +26,8 @@
 // The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool.
 // This tool is installedd into the Arduino IDE. 
 // This tool, at March 2024, needs to be used umder legacy Arduino IDE version 1.8.
-// The file content is like: "NETGEAR87_EXT\r\l######.
-// In other words lines separated by CR/LF.
+// The file content is a property or INI file like: "SSID: NETGEAR87_EXT\r\lpassword: ######.
+// In other words name/value pairs separated by CR/LF.
 
 // Do not commit to a public repo with valid credentials here.
 String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
@@ -160,6 +160,7 @@ void setup()
   Serial.println();
   pinMode(RELAY_PIN, OUTPUT);
   switchRelay(relayState);
+  
   String ssid; // fill in here your router or wifi SSID
   String password; // fill in here your router or wifi password
   if (!initConfig(ssid, password, schedule))
@@ -253,6 +254,8 @@ void loop()
   }
 }
 
+// Extract configuration from flash file system.
+// Could also use the nvram in the clock chip or an SD card.
 boolean initConfig(String &ssid, String &password, Schedule &schedule)
 {
   boolean isConfigFileValid = false;
@@ -327,16 +330,19 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
       int lineBreakIndex = propertyCollection.indexOf('\r', valueIndex);
       if (lineBreakIndex == -1)
       {
+        // The last property in a file with no final CR/LF 
         value = propertyCollection.substring(valueIndex);
       }
       else
       {
+        // Most properties end in CR/LF. 
         value = propertyCollection.substring(valueIndex, lineBreakIndex);
       }
       value.trim();
     }
     else
     {
+      // Need to fix the file contents if this message occurs.
       Serial.print(F("Property not found in file: ")); Serial.println(propertyName);
     }
     return value;
