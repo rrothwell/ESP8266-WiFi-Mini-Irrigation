@@ -114,7 +114,7 @@ RTC_DS1307 rtc;
 
   typedef struct
   {
-    int beginIrrigationHours;
+    int irrigationBeginHours;
     int irrigationDurationHours;
   
     int mistPeriodMinutes;
@@ -125,7 +125,7 @@ RTC_DS1307 rtc;
   // TODO Input data validation.
   Schedule defaultSchedule =
   {
-    10, // beginIrrigationHours
+    10, // irrigationBeginHours
     4,  // irrigationDurationHours
     20, // mistPeriodMinutes
     5   // mistDurationSeconds
@@ -207,6 +207,32 @@ void loop()
       automationStatus = AUTO_START;
       relayState = RELAY_OFF;
      }
+    else if (request.indexOf("schedule=Submit") != -1)  
+    {
+      int beginQueryIndex = request.indexOf("?");
+      int endQueryIndex = request.indexOf("HTTP");
+      String queryCollection;
+      if (beginQueryIndex != -1 && endQueryIndex != -1)
+      {
+          queryCollection = request.substring(beginQueryIndex + 1, endQueryIndex - 1);
+          Serial.println(queryCollection); Serial.print(beginQueryIndex); Serial.print(F(" to ")); Serial.println(endQueryIndex);
+          queryCollection.trim();
+          Serial.println(queryCollection);
+          schedule.irrigationBeginHours = extractQueryValue(queryCollection, "irrigationBeginHours").toInt();
+          schedule.irrigationDurationHours = extractQueryValue(queryCollection, "irrigationDurationHours").toInt();
+          schedule.mistPeriodMinutes = extractQueryValue(queryCollection, "mistPeriodMinutes").toInt();
+          schedule.mistDurationSeconds = extractQueryValue(queryCollection, "mistDurationSeconds").toInt();
+          Serial.println(F("Found schedule:"));
+          Serial.println(schedule.irrigationBeginHours);
+          Serial.println(schedule.irrigationDurationHours);
+          Serial.println(schedule.mistPeriodMinutes);
+          Serial.println(schedule.mistDurationSeconds);
+      }
+      else 
+      {
+        Serial.print(F("The request is malformed: ")); Serial.println(request);
+      }
+    }
     else
     {
       // Do nothing
@@ -277,17 +303,17 @@ boolean initConfig(String &ssid, String &password, Schedule &schedule)
       ssid = extractPropertyValue(fileContents, "SSID");
       password = extractPropertyValue(fileContents, "password");
       
-      String beginIrrigationHoursStr = extractPropertyValue(fileContents, "beginIrrigationHours");
+      String irrigationBeginHoursStr = extractPropertyValue(fileContents, "irrigationBeginHours");
       String irrigationDurationHoursStr = extractPropertyValue(fileContents, "irrigationDurationHours");
       String mistPeriodMinutesStr = extractPropertyValue(fileContents, "mistPeriodMinutes");
       String mistDurationSecondsStr = extractPropertyValue(fileContents, "mistDurationSeconds");
 
-//      Serial.print("beginIrrigationHours: "); Serial.println(beginIrrigationHoursStr);
+//      Serial.print("irrigationBeginHours: "); Serial.println(irrigationBeginHoursStr);
 //      Serial.print("irrigationDurationHours: "); Serial.println(irrigationDurationHoursStr);
 //      Serial.print("mistPeriodMinutes: "); Serial.println(mistPeriodMinutesStr);
 //      Serial.print("mistDurationSeconds: "); Serial.println(mistDurationSecondsStr);
 
-      schedule.beginIrrigationHours = mistDurationSecondsStr.toInt();
+      schedule.irrigationBeginHours = mistDurationSecondsStr.toInt();
       schedule.irrigationDurationHours = irrigationDurationHoursStr.toInt();
       schedule.mistPeriodMinutes = mistPeriodMinutesStr.toInt();
       schedule.mistDurationSeconds = mistDurationSecondsStr.toInt();
@@ -348,22 +374,61 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
     return value;
 }
 
+// Supply a property name.
+// Query collection is a string with format:
+// name0=value0&name1=value1&name2:=value2
+
+String extractQueryValue(const String &queryCollection, const String &propertyName)
+{
+    String value;
+    
+    // Find the name, to extract the value.
+    String propertyMarker = propertyName  + "=";
+    
+    Serial.print("propertyMarker: "); Serial.println(propertyMarker);
+    Serial.print("queryCollection: "); Serial.println(queryCollection);
+
+    int propertyIndex = queryCollection.indexOf(propertyMarker);
+    if (propertyIndex != -1)
+    {
+      int valueIndex = propertyIndex + propertyMarker.length();
+      int lineBreakIndex = queryCollection.indexOf('&', valueIndex);
+      if (lineBreakIndex == -1)
+      {
+        // The last property in a file with no final CR/LF 
+        value = queryCollection.substring(valueIndex);
+      }
+      else
+      {
+        // Most properties end in CR/LF. 
+        value = queryCollection.substring(valueIndex, lineBreakIndex);
+      }
+    }
+    else
+    {
+      // Need to fix the file contents if this message occurs.
+      Serial.print(F("Property not found in query: ")); Serial.println(propertyName);
+    }
+    return value;
+}
+
 void initRTC()
 {
   Serial.println("RTC begin init.");
 
   int rtcRetryCount = 5;
   int rtcRetryIndex = 0;
-  bool isSuccess = true;
 
 // Clear I2C comms to RTC after Arduino reset.
   pinMode(RTC_I2C_SCL,OUTPUT);
   digitalWrite(RTC_I2C_SCL,LOW);
   delay(100);
 
+  bool isSuccess = true;
   while (!rtc.begin())
   {
     rtcRetryIndex++;
+    // Serial.print("RTC retry. "); Serial.println(rtcRetryIndex);
     if (rtcRetryIndex >= rtcRetryCount)
     {
       isSuccess = false;
@@ -513,7 +578,7 @@ String generateSchedule(const Schedule& schedule)
   String htmlSchedule = F("<br>Schedule: ");
   String scheduleItems[] = 
     {
-      F("&nbsp;Irrigation start (hour): ") + String(schedule.beginIrrigationHours),
+      F("&nbsp;Irrigation start (hour): ") + String(schedule.irrigationBeginHours),
       F("&nbsp;Irrigation duration (hours): ") + String(schedule.irrigationDurationHours),
       F("&nbsp;Mist period (minutes): ") + String(schedule.mistPeriodMinutes),
       F("&nbsp;Mist duration (seconds): ") + String(schedule.mistDurationSeconds)
@@ -533,7 +598,7 @@ String generateForm(const Schedule& schedule)
   String htmlForm = F("<br>Edit schedule: <br>");
   String scheduleValues[] = 
     {
-      String(schedule.beginIrrigationHours),
+      String(schedule.irrigationBeginHours),
       String(schedule.irrigationDurationHours),
       String(schedule.mistPeriodMinutes),
       String(schedule.mistDurationSeconds)
@@ -549,7 +614,7 @@ String generateForm(const Schedule& schedule)
     
   String scheduleNames[] = 
     {
-      F("beginIrrigationHours"),
+      F("irrigationBeginHours"),
       F("irrigationDurationHours"),
       F("mistPeriodMinutes"),
       F("mistDurationSeconds")
@@ -575,16 +640,16 @@ String generateForm(const Schedule& schedule)
 
 void validateIrrigationSchedule(const Schedule &schedule)
 {
-    Serial.print(F("Validating beginIrrigationHours = ")); Serial.println(schedule.beginIrrigationHours);
-  if (!(0 <= schedule.beginIrrigationHours && schedule.beginIrrigationHours < 24))
+    Serial.print(F("Validating irrigationBeginHours = ")); Serial.println(schedule.irrigationBeginHours);
+  if (!(0 <= schedule.irrigationBeginHours && schedule.irrigationBeginHours < 24))
   {
-    Serial.println(F("BeginIrrigationHours must be in the range 0 to 23."));
+    Serial.println(F("irrigationBeginHours must be in the range 0 to 23."));
     Serial.flush();
     abort();
   }
 
   Serial.print(F("Validating irrigationDurationHours = ")); Serial.println(schedule.irrigationDurationHours);
-  if (!(0 < schedule.irrigationDurationHours && (schedule.beginIrrigationHours + schedule.irrigationDurationHours < 24)))
+  if (!(0 < schedule.irrigationDurationHours && (schedule.irrigationBeginHours + schedule.irrigationDurationHours < 24)))
   {
     Serial.println(F("IrrigationDurationHours must be greater than 0 and the calculated end hours must be less than 23."));
     Serial.flush();
@@ -611,8 +676,8 @@ void validateIrrigationSchedule(const Schedule &schedule)
 
 void initIrrigationSchedule(const Schedule &schedule)
 {
-  waterToday.begin = schedule.beginIrrigationHours;
-  waterToday.end = schedule.beginIrrigationHours + schedule.irrigationDurationHours;
+  waterToday.begin = schedule.irrigationBeginHours;
+  waterToday.end = schedule.irrigationBeginHours + schedule.irrigationDurationHours;
   isPreviousMisting = false;
   Serial.println(F("Initialising irrigation schedule.")) ;
 }
