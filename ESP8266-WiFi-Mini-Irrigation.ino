@@ -477,6 +477,15 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
                       "Connection: close\r\n"
                       "\r\n");
 
+  String htmlStyle = F("<style type=\"text/css\">"
+                        ".fieldset-auto-width {display: inline-block; }"
+                        ".div-auto-width {display: inline-block; }"
+                        ".force-right {text-align: right;}"
+                        "fieldset {text-align: right;}"
+                        "legend {float: left;}"
+                        "input {margin: 2px;}"
+                       "</style>");
+
   String htmlStart = F("<!DOCTYPE HTML>"
                       "<html>"
                       "<head><title>Irrigation Control</title></head>");
@@ -485,7 +494,7 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
   String htmlTitle = F("Manual water delivery is now: ") + relayStateStr; 
   bool isShowingSchedule = automationStatus == AUTO_START || automationStatus == AUTO;
   String htmlSchedule = isShowingSchedule ? generateSchedule(schedule) : F("<br>Schedule inactive.");
-    
+  String htmlForm = generateForm(schedule); 
   String htmlControl = F("<br><br>"
                       "Turn <a href=\"/RELAY=OFF\">OFF</a> water supply.<br>"
                       "Turn <a href=\"/RELAY=ON\">ON</a> water supply.<br>"
@@ -494,7 +503,7 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
   String htmlEnd = F("</html>"
                   "\r\n");
 
-  htmlPage = htmlHeader + htmlStart + htmlTitle + htmlSchedule + htmlControl + htmlEnd;
+  htmlPage = htmlHeader + htmlStyle + htmlStart + htmlTitle + htmlSchedule + htmlControl + htmlForm + htmlEnd;
  
   return htmlPage;
 }
@@ -518,6 +527,51 @@ String generateSchedule(const Schedule& schedule)
   } 
   return htmlSchedule;
 }
+
+String generateForm(const Schedule& schedule)  
+{
+  String htmlForm = F("<br>Edit schedule: <br>");
+  String scheduleValues[] = 
+    {
+      String(schedule.beginIrrigationHours),
+      String(schedule.irrigationDurationHours),
+      String(schedule.mistPeriodMinutes),
+      String(schedule.mistDurationSeconds)
+    };
+    
+  String scheduleLabels[] = 
+    {
+      F("&nbsp;Irrigation start (hour):&nbsp;"),
+      F("&nbsp;Irrigation duration (hours):&nbsp;"),
+      F("&nbsp;Mist period (minutes):&nbsp;"),
+      F("&nbsp;Mist duration (seconds):&nbsp;")
+    };
+    
+  String scheduleNames[] = 
+    {
+      F("beginIrrigationHours"),
+      F("irrigationDurationHours"),
+      F("mistPeriodMinutes"),
+      F("mistDurationSeconds")
+    };
+
+  String htmlFields;
+  int itemIndex;
+  int itemCount = sizeof(scheduleValues)/sizeof(scheduleValues[0]);
+  for (int itemIndex = 0; itemIndex < itemCount; itemIndex++)
+  {
+    String htmlInput =  F("<input type=\"text\" name=\"") + scheduleNames[itemIndex] + F("\"") + F(" value=\"") + scheduleValues[itemIndex] + F("\">");
+    htmlFields +=  F("<label for=\"") + scheduleNames[itemIndex] + F("\">") + scheduleLabels[itemIndex] + htmlInput  + F("</label>") + F("<br>");
+  } 
+  // String htmlLegend = F("<legend>Edit schedule: </legend>");
+  String htmlFieldSet = F("<fieldset class=\"fieldset-auto-width\">") + htmlFields + F("</fieldset>");
+ 
+  String htmlSubmit =  F("<div class=\"force-right\"><input type=\"submit\" name=\"schedule\" value=\"Submit\"></div>");
+  htmlForm += F("<form name=\"SCHEDULE\" action=\"/\" method=\"get\">") + htmlFieldSet + htmlSubmit + F("</form>");
+  htmlForm = F("<div class=\"div-auto-width\">") + htmlForm + F("</div>");
+  return htmlForm;
+}
+
 
 void validateIrrigationSchedule(const Schedule &schedule)
 {
