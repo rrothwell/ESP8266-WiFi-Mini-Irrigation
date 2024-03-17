@@ -1,4 +1,3 @@
-// WiFi Managed Irrigation Controller
 // Copyright 2024 by Richard Rothwell
 // ----------------------------------
 // ESP8266 module on WiFi Mini PCB.
@@ -131,7 +130,8 @@ RTC_DS1307 rtc;
     5   // mistDurationSeconds
   };
 
-  Schedule schedule;
+  Schedule currentSchedule;
+  const Schedule NULL_SCHEDULE = {0, 0, 0, 0};
 
   MistEvent mistToday;
   IrrigationEvent waterToday;
@@ -152,6 +152,8 @@ RTC_DS1307 rtc;
  
 void setup() 
 {
+  Schedule schedule;
+  
   // The Serial Monitor can be set to 115200 to eavesdrop.
   // This is the default for the D1 WiFi Mini.
   Serial.begin(115200);
@@ -173,8 +175,17 @@ void setup()
   // Serial.print("Password: "); Serial.println(password);
   initRTC(); 
   initWebServer(ssid, password);
-  validateIrrigationSchedule(schedule);
-  initIrrigationSchedule(schedule);
+  if(validateIrrigationSchedule(schedule))
+  {
+    currentSchedule = schedule;
+    initIrrigationSchedule(currentSchedule);    
+  }
+  else
+  {
+    Serial.println("The irrigation schedule is outside the acceptable range. ");
+    Serial.flush();
+    abort();
+  }
 }
  
 void loop() 
@@ -209,7 +220,13 @@ void loop()
      }
     else if (request.indexOf("schedule=Submit") != -1)  
     {
-      updateSchedule(request, schedule);
+      Schedule schedule;
+      if(updateSchedule(request, schedule))
+      {
+        currentSchedule = schedule;
+        initIrrigationSchedule(currentSchedule);    
+        persistSchedule(currentSchedule);
+      }
     }
     else
     {
@@ -228,7 +245,7 @@ void loop()
     // Regenerate and send web page regardless of 
     // the validity of the request.
     // Use the stored relay state.
-    browser.println(generateResponse(relayState, automationStatus, schedule));
+    browser.println(generateResponse(relayState, automationStatus, currentSchedule));
 
     Serial.println("Web client disconnected.");
     Serial.println("");
@@ -252,7 +269,7 @@ void loop()
         break;
     case AUTO:
     default:
-        irrigate(schedule);
+        irrigate(currentSchedule);
         // Nothing
         break;
   }
@@ -363,8 +380,8 @@ String extractQueryValue(const String &queryCollection, const String &propertyNa
     // Find the name, to extract the value.
     String propertyMarker = propertyName  + "=";
     
-    Serial.print("propertyMarker: "); Serial.println(propertyMarker);
-    Serial.print("queryCollection: "); Serial.println(queryCollection);
+    //Serial.print("propertyMarker: "); Serial.println(propertyMarker);
+    //Serial.print("queryCollection: "); Serial.println(queryCollection);
 
     int propertyIndex = queryCollection.indexOf(propertyMarker);
     if (propertyIndex != -1)
@@ -615,58 +632,107 @@ String generateForm(const Schedule& schedule)
   return htmlForm;
 }
 
-void updateSchedule(const String &request, Schedule &schedule)
+bool updateSchedule(const String &request, Schedule &newSchedule)
 {
-  schedule = interpretScheduleRequest(request);
+  bool isUpDateable = false;
+  Schedule schedule;
+  
+  if(interpretScheduleRequest(request, schedule))
+  {
+    if(validateIrrigationSchedule(schedule))
+    {
+      newSchedule = schedule;
+      isUpDateable = true;
+    }
+    else
+    {
+      Serial.println("The irrigation schedule is outside the acceptable range. ");
+    }
+  }
+  return isUpDateable;
 }
 
-Schedule interpretScheduleRequest(const String &request)
+bool interpretScheduleRequest(const String &request, Schedule &schedule)
 {
-  Schedule schedule;
+  bool isValidSchedule = false;
   
   int beginQueryIndex = request.indexOf("?");
   int endQueryIndex = request.indexOf("HTTP");
   String queryCollection;
   if (beginQueryIndex != -1 && endQueryIndex != -1)
   {
-      queryCollection = request.substring(beginQueryIndex + 1, endQueryIndex - 1);
-      Serial.println(queryCollection); Serial.print(beginQueryIndex); Serial.print(F(" to ")); Serial.println(endQueryIndex);
-      queryCollection.trim();
-      Serial.println(queryCollection);
-      schedule.irrigationBeginHours = extractQueryValue(queryCollection, "irrigationBeginHours").toInt();
-      schedule.irrigationDurationHours = extractQueryValue(queryCollection, "irrigationDurationHours").toInt();
-      schedule.mistPeriodMinutes = extractQueryValue(queryCollection, "mistPeriodMinutes").toInt();
-      schedule.mistDurationSeconds = extractQueryValue(queryCollection, "mistDurationSeconds").toInt();
-      Serial.println(F("Found schedule:"));
-      Serial.println(schedule.irrigationBeginHours);
-      Serial.println(schedule.irrigationDurationHours);
-      Serial.println(schedule.mistPeriodMinutes);
-      Serial.println(schedule.mistDurationSeconds);
+    queryCollection = request.substring(beginQueryIndex + 1, endQueryIndex - 1);
+    //Serial.println(queryCollection); Serial.print(beginQueryIndex); Serial.print(F(" to ")); Serial.println(endQueryIndex);
+    queryCollection.trim();
+    //Serial.println(queryCollection);
+    
+    String irrigationBeginHoursStr = extractQueryValue(queryCollection, "irrigationBeginHours");
+    String irrigationDurationHoursStr = extractQueryValue(queryCollection, "irrigationDurationHours");
+    String mistPeriodMinutesStr = extractQueryValue(queryCollection, "mistPeriodMinutes");
+    String mistDurationSecondsStr = extractQueryValue(queryCollection, "mistDurationSeconds");
+
+    if (isValidInteger(irrigationBeginHoursStr))
+    {
+      schedule.irrigationBeginHours = irrigationBeginHoursStr.toInt();
+      if (isValidInteger(irrigationDurationHoursStr))
+      {
+        schedule.irrigationDurationHours = irrigationDurationHoursStr.toInt();
+        if (isValidInteger(mistPeriodMinutesStr))
+        {
+          schedule.mistPeriodMinutes = mistPeriodMinutesStr.toInt();
+          if (isValidInteger(mistDurationSecondsStr))
+          {
+            schedule.mistDurationSeconds = mistDurationSecondsStr.toInt();
+            isValidSchedule = true;
+            //Serial.println(F("Found schedule:"));
+            //Serial.println(schedule.irrigationBeginHours);
+            //Serial.println(schedule.irrigationDurationHours);
+            //Serial.println(schedule.mistPeriodMinutes);
+            //Serial.println(schedule.mistDurationSeconds);
+          }
+          else
+          {
+            Serial.print(F("Not a valid integer: ")); Serial.println(mistDurationSecondsStr);
+          }
+        }        
+        else
+        {
+          Serial.print(F("Not a valid integer: ")); Serial.println(mistPeriodMinutesStr);
+        }
+      }
+      else
+      {
+        Serial.print(F("Not a valid integer: ")); Serial.println(irrigationDurationHoursStr);
+      }
+    }
+    else
+    {
+      Serial.print(F("Not a valid integer: ")); Serial.println(irrigationBeginHoursStr);
+    }
   }
   else 
   {
     Serial.print(F("The request is malformed: ")); Serial.println(request);
   } 
-  return schedule;
+  return isValidSchedule;
 }
 
 // Checks numerical ranges.
-void validateIrrigationSchedule(const Schedule &schedule)
+bool validateIrrigationSchedule(const Schedule &schedule)
 {
-    Serial.print(F("Validating irrigationBeginHours = ")); Serial.println(schedule.irrigationBeginHours);
+  bool isSuccess = true;
+   Serial.print(F("Validating irrigationBeginHours = ")); Serial.println(schedule.irrigationBeginHours);
   if (!(0 <= schedule.irrigationBeginHours && schedule.irrigationBeginHours < 24))
   {
     Serial.println(F("irrigationBeginHours must be in the range 0 to 23."));
-    Serial.flush();
-    abort();
+    isSuccess = false;
   }
 
   Serial.print(F("Validating irrigationDurationHours = ")); Serial.println(schedule.irrigationDurationHours);
   if (!(0 < schedule.irrigationDurationHours && (schedule.irrigationBeginHours + schedule.irrigationDurationHours < 24)))
   {
     Serial.println(F("IrrigationDurationHours must be greater than 0 and the calculated end hours must be less than 23."));
-    Serial.flush();
-    abort();
+    isSuccess = false;
   }
 
   Serial.print(F("Validating mistPeriodMinutes = ")); Serial.println(schedule.mistPeriodMinutes);
@@ -674,17 +740,37 @@ void validateIrrigationSchedule(const Schedule &schedule)
   if (!(0 < schedule.mistPeriodMinutes && schedule.mistPeriodMinutes < irrigationDurationMinutes))
   {
     Serial.println(F("MistPeriodMinutes must be greater than 0 and less than ") + String(irrigationDurationMinutes) + F("."));
-    Serial.flush();
-    abort();
+    isSuccess = false;
   }
 
   Serial.print(F("Validating mistDurationSeconds = ")); Serial.println(schedule.mistDurationSeconds);
   if (!(0 < schedule.mistDurationSeconds && schedule.mistDurationSeconds < 60))
   {
     Serial.println(F("MistDurationSeconds must be greater than 0 and less than 60."));
-    Serial.flush();
-    abort();
+    isSuccess = false;
   }
+  return isSuccess;
+}
+
+bool isValidInteger(const String &potentialInteger)
+{
+  bool isValid = true;
+  int characterIndex;
+  int characterCount = potentialInteger.length();
+  for(characterIndex = 0; characterIndex < characterCount; characterIndex++)
+  {
+    if(!isDigit(potentialInteger.charAt(characterIndex)))
+    {
+      isValid = false;
+      break;
+    }
+  }
+  return isValid;
+}
+
+bool persistSchedule(const Schedule &schedule)
+{
+  return true;
 }
 
 void initIrrigationSchedule(const Schedule &schedule)
