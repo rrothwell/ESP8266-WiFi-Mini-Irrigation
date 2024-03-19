@@ -32,6 +32,9 @@
 String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
 String defaultPassword = "##########"; // fill in here your router or wifi password
 
+String ssid; // fill in here your router or wifi SSID
+String password; // fill in here your router or wifi password
+
 // Shield pin assignments.
 // Schematic and pinouts.
 // https://lastminuteengineers.com/wemos-d1-mini-pinout-reference/
@@ -163,9 +166,8 @@ void setup()
   pinMode(RELAY_PIN, OUTPUT);
   switchRelay(relayState);
   
-  String ssid; // fill in here your router or wifi SSID
-  String password; // fill in here your router or wifi password
-  if (!initConfig(ssid, password, schedule))
+  initFileSystem();
+  if (!readConfigFromFS(ssid, password, schedule))
   {
     ssid = defaultSsid;
     password = defaultPassword;
@@ -223,9 +225,11 @@ void loop()
       Schedule schedule;
       if(updateSchedule(request, schedule))
       {
-        currentSchedule = schedule;
-        initIrrigationSchedule(currentSchedule);    
-        persistSchedule(currentSchedule);
+        if(writeConfigToFS(ssid, password, schedule))
+        {
+          currentSchedule = schedule;
+          initIrrigationSchedule(currentSchedule);
+        }
       }
     }
     else
@@ -275,14 +279,23 @@ void loop()
   }
 }
 
-// Extract configuration from flash file system.
-// Could also use the nvram in the clock chip or an SD card.
-boolean initConfig(String &ssid, String &password, Schedule &schedule)
+// Initialise file system.
+// for persistent configuration.
+void initFileSystem()
 {
-  boolean isConfigFileValid = false;
+  // FS = file system.
+  // File system storage is microcomputer internal flash memory,
+  // but could also use the nvram in the clock chip or an SD card.
+
   LittleFSConfig fsConfig;
   fsConfig.setAutoFormat(false);
   LittleFS.setConfig(fsConfig);  
+}
+
+// Extract configuration from file system.
+boolean readConfigFromFS(String &ssid, String &password, Schedule &schedule)
+{
+  boolean isConfigFileValid = false;
   bool isFSMounted = LittleFS.begin();
   if (isFSMounted)
   {
@@ -326,6 +339,70 @@ boolean initConfig(String &ssid, String &password, Schedule &schedule)
     abort();
   };
   return isConfigFileValid;
+}
+
+// Write configuration from flash file system.
+// Could also use the nvram in the clock chip or an SD card.
+boolean writeConfigToFS(const String &ssid, const String &password, const Schedule &schedule)
+{
+  boolean isConfigFileValid = false;
+  bool isFSMounted = LittleFS.begin();
+  if (isFSMounted)
+  {
+    File fileHandle = LittleFS.open(F("config.txt"), "w");
+    if (fileHandle)
+    {
+      String fileContents;
+
+      fileContents += createPropertyValue(F("SSID"), ssid);
+      fileContents += createPropertyValue(F("password"), password);
+      
+      fileContents += createPropertyValue(F("irrigationBeginHours"), schedule.irrigationBeginHours);
+      fileContents += createPropertyValue(F("irrigationDurationHours"), schedule.irrigationDurationHours);
+      fileContents += createPropertyValue(F("mistPeriodMinutes"), schedule.mistPeriodMinutes);
+      fileContents += createPropertyValue(F("mistDurationSeconds"), schedule.mistDurationSeconds);
+
+      //Serial.print("File contents: "); Serial.println(fileContents);
+
+      // Write an byte as an int at a time, then treat it as a char.
+      if(fileHandle.print(fileContents))
+      {
+        isConfigFileValid = true;
+      }
+      else
+      {
+         Serial.println("Configuration write failed");
+      }
+    }
+    else
+    {
+      Serial.println("File open failed. ");
+    }
+  }
+  else
+  {
+    Serial.println(F("Unable to mount flash file system."));
+    Serial.flush();
+    abort();
+  };
+  return isConfigFileValid;
+}
+
+// Generate a property name/value pair as a string.
+// Property collection is a string with format:
+// name0: value0
+// name1: value1
+// name2: value2
+// (blank line optional)
+
+String createPropertyValue(const String &nameStr, const String &valueStr)
+{
+  return nameStr + F(": ") + valueStr + F("\r\n");
+}
+
+String createPropertyValue(const String &nameStr, int valueInt)
+{
+  return createPropertyValue(nameStr, String(valueInt));
 }
 
 // Supply a property name without the colon delimiter.
@@ -768,11 +845,6 @@ bool isValidInteger(const String &potentialInteger)
   return isValid;
 }
 
-bool persistSchedule(const Schedule &schedule)
-{
-  return true;
-}
-
 void initIrrigationSchedule(const Schedule &schedule)
 {
   waterToday.begin = schedule.irrigationBeginHours;
@@ -785,7 +857,6 @@ void irrigate(const Schedule &schedule)
 { 
   DateTime now = rtc.now();
   int currentHour = now.hour();
-  //int currentMinute = now.minute();
   int currentSeconds = now.second() + now.minute() * 60;
 
   static int reportIndex;
