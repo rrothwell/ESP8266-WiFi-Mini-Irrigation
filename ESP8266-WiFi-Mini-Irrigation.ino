@@ -166,12 +166,14 @@ WiFiServer server(80);
 
   enum Automation
   {
+    NULL_STATE,
     MANUAL_ACTIVE,
     MANUAL_INACTIVE,
+    AUTO_CONFIG,
     AUTO_START,
-    AUTO,
+    AUTO_RUN,
   };
-  int automationStatus = AUTO;
+  int automationStatus = AUTO_RUN;
 
   // #define REPORT_IRRIGATION
 
@@ -201,7 +203,7 @@ void setup()
   // Serial.print("Password: "); Serial.println(password);
   
   initRTC(); 
-  initWebServer(ssid, password);
+  initNetworkConnection(ssid, password);
   if(validateIrrigationSchedule(schedule))
   {
     currentSchedule = schedule;
@@ -219,59 +221,16 @@ void setup()
 
 void loop() 
 {
+  String request;
+
   // Wait for client connection.
   WiFiClient browser = server.accept();
   if (browser) 
   {
     Serial.println("New web client");
-
     browser.setTimeout(5000);  // Overide default of 1000.
-
-    // Extract the HTTP request as the first line of the request header.
-    String request = browser.readStringUntil('\r');
-    Serial.println(request);
-  
-    // Interpret the HTTP request and set the corresponding relay state.
-    if (request.indexOf("/RELAY=ON") != -1)  
-    {
-      automationStatus = MANUAL_ACTIVE;
-      relayState = RELAY_ON;
-    }
-    else if (request.indexOf("/RELAY=OFF") != -1)  
-    {
-      automationStatus = MANUAL_ACTIVE;
-      relayState = RELAY_OFF;
-    }
-    else if (request.indexOf("/RELAY=AUTO_START") != -1)  
-    {
-      automationStatus = AUTO_START;
-      relayState = RELAY_OFF;
-     }
-    else if (request.indexOf("schedule=Submit") != -1)  
-    {
-      Schedule schedule;
-      if(updateSchedule(request, schedule))
-      {
-        if(writeConfigToFS(ssid, password, schedule))
-        {
-          currentSchedule = schedule;
-          initIrrigationSchedule(currentSchedule);
-        }
-      }
-    }
-    else
-    {
-      // Do nothing
-      // Ignore any other kind of request including
-      // the favicon request from client browser.
-      automationStatus = AUTO;
-    }
-
-    // Spin wheels to pick up content until browser stops sending.
-    while (browser.available())
-    {
-      browser.read();
-    }
+    
+    automationStatus = handleRequest(browser, relayState, request);
 
     // Regenerate and send web page regardless of 
     // the validity of the request.
@@ -294,11 +253,25 @@ void loop()
         break;
     case MANUAL_INACTIVE:
         break;
-    case AUTO_START:
-        mist(relayState);
-        automationStatus = AUTO;
+    case AUTO_CONFIG:
+        Schedule schedule;
+        if(updateSchedule(request, schedule))
+        {
+          if(writeConfigToFS(ssid, password, schedule))
+          {
+            currentSchedule = schedule;
+            initIrrigationSchedule(currentSchedule);
+            Serial.println("Schedule is updated. ");
+          }
+        }
+        automationStatus = AUTO_START;
         break;
-    case AUTO:
+    case AUTO_START:
+        mist(false);
+        Serial.println("Beginning the misting schedule. ");
+        automationStatus = AUTO_RUN;
+        break;
+    case AUTO_RUN:
     default:
         irrigate(currentSchedule);
         // Nothing
@@ -568,7 +541,7 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
 
 //---------------------- Section: Web Server Functions -------------------
 
-void initWebServer(const String &ssid, const String &password)
+void initNetworkConnection(const String &ssid, const String &password)
 {
   // Connect to WiFi network
   Serial.println();
@@ -595,6 +568,51 @@ void initWebServer(const String &ssid, const String &password)
   // The end user copies and pastes this string into a browser to get started.
   Serial.print("Browser URL: ");
   Serial.print("http://"); Serial.print(WiFi.localIP()); Serial.println("/");
+}
+
+// Read browser request.
+
+int handleRequest(WiFiClient &browser, bool &relayState, String &request)
+{
+  int automationStatus = NULL_STATE;
+  
+  // Extract the HTTP request as the first line of the request header.
+  request = browser.readStringUntil('\r');
+  Serial.println(request);
+
+  // Interpret the HTTP request and set the corresponding relay state.
+  if (request.indexOf("/RELAY=ON") != -1)  
+  {
+    automationStatus = MANUAL_ACTIVE;
+    relayState = RELAY_ON;
+  }
+  else if (request.indexOf("/RELAY=OFF") != -1)  
+  {
+    automationStatus = MANUAL_ACTIVE;
+    relayState = RELAY_OFF;
+  }
+  else if (request.indexOf("/RELAY=AUTO_START") != -1)  
+  {
+    automationStatus = AUTO_START;
+   }
+  else if (request.indexOf("schedule=Submit") != -1)  
+  {
+    automationStatus = AUTO_CONFIG;
+  }
+  else
+  {
+    // Do nothing
+    // Ignore any other kind of request including
+    // the favicon request from client browser.
+    automationStatus = AUTO_RUN;
+  }
+
+  // Spin wheels to pick up content until browser stops sending.
+  while (browser.available())
+  {
+    browser.read();
+  }
+  return automationStatus;
 }
 
 // Generate a web page as a response.
@@ -627,7 +645,7 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
 
   String relayStateStr = relayState == RELAY_ON ? RELAY_ON_LABEL : RELAY_OFF_LABEL;
   String htmlTitle = F("Manual water delivery is now: ") + relayStateStr; 
-  bool isShowingSchedule = automationStatus == AUTO_START || automationStatus == AUTO;
+  bool isShowingSchedule = automationStatus == AUTO_START || automationStatus == AUTO_RUN;
   String htmlSchedule = isShowingSchedule ? generateSchedule(schedule) : F("<br>Schedule inactive.");
   String htmlForm = generateForm(schedule); 
   String htmlControl = F("<br><br>"
