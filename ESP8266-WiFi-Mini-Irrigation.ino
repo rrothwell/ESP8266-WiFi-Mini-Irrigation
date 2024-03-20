@@ -78,8 +78,8 @@ bool relayState = RELAY_OFF;
 
 #define INIT_DATETIME_ON_FIRST_RUN
 // The DS1703 needs to be reset to the current time regularly.
-// So uncomment this line temporarily prior to compilation and download.
-#define FORCE_DATETIME
+// So uncomment this line temporarily prior to compilation and then download.
+// #define FORCE_DATETIME
 
 // Real time clock shield
 // BCD RTC plus 65 bytes of NVRAM and programmable squarewave output (not connected).
