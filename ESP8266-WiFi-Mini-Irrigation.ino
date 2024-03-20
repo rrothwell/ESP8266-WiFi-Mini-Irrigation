@@ -124,6 +124,9 @@ String password; // fill in here your router or wifi password
 // Web server initialisation.
 WiFiServer server(80);
 
+String webUserName;
+String webPassword;
+
 //---------------------- Section: Irrigation Application Types and Globals -------------------
 
 // Irrigation schedule initialisation defined in hours.
@@ -205,7 +208,10 @@ void setup()
   }
   // Serial.print("SSID: "); Serial.println(ssid);
   // Serial.print("Password: "); Serial.println(password);
-  
+
+  webUserName  = F("userX");
+  webPassword  = F("passX");
+
   initRTC(); 
   initNetworkConnection(ssid, password);
   if(validateIrrigationSchedule(schedule))
@@ -234,13 +240,7 @@ void loop()
     Serial.println("New web client");
     browser.setTimeout(5000);  // Overide default of 1000.
     
-    automationStatus = handleRequest(browser, relayState, request);
-
-    // Regenerate and send web page regardless of 
-    // the validity of the request.
-    // Use the stored relay state.
-    browser.println(generateLoginResponse());
-    //browser.println(generateResponse(relayState, automationStatus, currentSchedule));
+    automationStatus = handleRequest(browser, relayState);
 
     Serial.println("Web client disconnected.");
     Serial.println("");
@@ -588,40 +588,96 @@ void initNetworkConnection(const String &ssid, const String &password)
 
 // Read browser request.
 
-int handleRequest(WiFiClient &browser, bool &relayState, String &request)
+int handleRequest(WiFiClient &browser, bool &relayState)
 {
   int automationStatus = NULL_STATE;
-  
-  // Extract the HTTP request as the first line of the request header.
-  request = browser.readStringUntil('\r');
-  Serial.println(request);
 
-  // Interpret the HTTP request and set the corresponding relay state.
-  if (request.indexOf("/RELAY=ON") != -1)  
+  String request = browser.readStringUntil('\r');
+  if (isAuthenticated(browser))
   {
-    automationStatus = MANUAL_ACTIVE;
-    relayState = RELAY_ON;
-  }
-  else if (request.indexOf("/RELAY=OFF") != -1)  
-  {
-    automationStatus = MANUAL_ACTIVE;
-    relayState = RELAY_OFF;
-  }
-  else if (request.indexOf("/RELAY=AUTO_START") != -1)  
-  {
-    automationStatus = AUTO_START;
-   }
-  else if (request.indexOf("schedule=Submit") != -1)  
-  {
-    automationStatus = AUTO_CONFIG;
+    Serial.println(F("Authenticated."));
+    // Extract the HTTP request as the first line of the request header.
+    Serial.println(request);
+    if (request.indexOf("GET") == 0)
+    {
+      Serial.println(F("Get request"));
+      // Interpret the HTTP request and set the corresponding relay state.
+      String target = extractTarget(request);
+      if (target == "/RELAY=ON")  
+      {
+        automationStatus = MANUAL_ACTIVE;
+        relayState = RELAY_ON;
+      }
+      else if (target == "/RELAY=OFF")  
+      {
+        automationStatus = MANUAL_ACTIVE;
+        relayState = RELAY_OFF;
+      }
+      else if (target == "/RELAY=AUTO_START")  
+      {
+        automationStatus = AUTO_START;
+       }
+      else if (target == "schedule=Submit")  
+      {
+        automationStatus = AUTO_CONFIG;
+      }
+      else
+      {
+        // Do nothing
+        // Ignore any other kind of request including
+        // the favicon request from client browser.
+        automationStatus = AUTO_RUN;
+      }
+      // Regenerate and send web page regardless of 
+      // the validity of the request.
+      // Use the stored relay state.
+      browser.println(generateResponse(relayState, automationStatus, currentSchedule));
+    }
+    else if (request.indexOf("POST") == 0)
+    {
+      Serial.println(F("Post request"));
+      String target = extractTarget(request);
+      if (target == F("/update"))
+      {
+        // Root path of site.
+      }
+      else
+      {
+         browser.println(generatePageNotFoundResponse());
+      }
+    }
   }
   else
   {
-    // Do nothing
-    // Ignore any other kind of request including
-    // the favicon request from client browser.
-    automationStatus = AUTO_RUN;
+      Serial.println(F("Not authenticated."));
+      String target = extractTarget(request);
+      if (target == F("/login"))
+      {
+        browser.println(generateLoginResponse());
+      }
+      else if (target == F("/authenticate"))
+      {
+        String body = extractPostQuery(browser);
+        String userName = extractQueryValue(body, F("userName"));
+        String password = extractQueryValue(body, F("password"));
+        if (userName == webUserName && password == webPassword)
+        {
+          // Set session id cookie and send to the root page.
+          browser.println(generateRedirectResponseToRoot());        
+        }
+        else
+        {
+          // Send to the login page.
+          browser.println(generateRedirectResponseToLogin());        
+        }
+      }
+      else
+      {
+        // Send to the login page.
+        browser.println(generateRedirectResponseToLogin());
+      }
   }
+
 
   // Spin wheels to pick up content until browser stops sending.
   while (browser.available())
@@ -631,14 +687,122 @@ int handleRequest(WiFiClient &browser, bool &relayState, String &request)
   return automationStatus;
 }
 
-// Generate a web page as a response.
+bool isAuthenticated(WiFiClient &browser)
+{ 
+  return extractCookie(browser).indexOf(F("sessionId=123456")) != -1;
+}
+
+String extractTarget(const String &request)
+{
+  int indexStartTarget = request.indexOf(F(" ")) + 1;
+  int indexEndTarget = request.indexOf(F(" "), indexStartTarget);
+  String target = request.substring(indexStartTarget, indexEndTarget);
+  Serial.print(F("Range: ")); Serial.print(indexStartTarget); Serial.print(F(" to ")); Serial.println(indexEndTarget); 
+  Serial.print(F("Target: ")); Serial.println(target);
+  return target;
+}
+
+String extractPostQuery(WiFiClient &browser)
+{
+  // At this point the header lines have all been consumed,
+  // so only the message body remains.
+  String body = browser.readStringUntil('\r');
+  body.trim(); // Remove leading line feed.
+  Serial.print(F("Body line: ")); Serial.println(body); 
+  return body;
+}
+
+String extractBody(WiFiClient &browser)
+{
+  // At this point the header lines have all been consumed,
+  // so only the message body remains.
+  String body;
+  String messagePart;
+  messagePart = browser.readStringUntil('\r');
+  messagePart.trim(); // Remove leading line feed.
+  Serial.print(F("Body line: ")); Serial.println(messagePart); 
+  body += messagePart + F("\r\n");
+  while (messagePart.length() > 0)
+  {
+    messagePart = browser.readStringUntil('\r');
+    messagePart.trim(); // Remove leading line feed.
+    Serial.print(F("Header line: ")); Serial.println(messagePart); 
+  }
+  body = messagePart;
+  Serial.print(F("Body line: ")); Serial.println(messagePart); 
+  return body;
+}
+
+String extractCookie(WiFiClient &browser)
+{
+  // At this point the query line has already been read,
+  // so the header lines come next.
+  String cookieValue;
+  String messagePart;
+  do {
+   // Read all header lines and extract cookie value.
+    messagePart = browser.readStringUntil('\r');
+    messagePart.trim(); // Remove leading line feed.
+    Serial.print(F("Header line: ")); Serial.println(messagePart); 
+    if (messagePart.startsWith(F("Cookie: ")))
+    {
+      String cookieName = F("Cookie: ");
+      int indexStart = cookieName.length();
+      cookieValue = messagePart.substring(indexStart);
+      cookieValue.trim();
+    }
+   }   while (messagePart.length() > 0);
+
+  // The message body is next.
+  Serial.print(F("Cookie: ")); Serial.println(cookieValue); 
+  return cookieValue;
+}
+
+
+// Supply a property name.
+// Query collection is a string with format:
+// name0=value0&name1=value1&name2:=value2
+
+String extractQueryValue(const String &queryCollection, const String &propertyName)
+{
+    String value;
+    
+    // Find the name, to extract the value.
+    String propertyMarker = propertyName  + "=";
+    
+    //Serial.print("propertyMarker: "); Serial.println(propertyMarker);
+    //Serial.print("queryCollection: "); Serial.println(queryCollection);
+
+    int propertyIndex = queryCollection.indexOf(propertyMarker);
+    if (propertyIndex != -1)
+    {
+      int valueIndex = propertyIndex + propertyMarker.length();
+      int lineBreakIndex = queryCollection.indexOf('&', valueIndex);
+      if (lineBreakIndex == -1)
+      {
+        // The last property in a file with no final CR/LF 
+        value = queryCollection.substring(valueIndex);
+      }
+      else
+      {
+        // Most properties end in CR/LF. 
+        value = queryCollection.substring(valueIndex, lineBreakIndex);
+      }
+    }
+    else
+    {
+      // Need to fix the file contents if this message occurs.
+      Serial.print(F("Property not found in query: ")); Serial.println(propertyName);
+    }
+    return value;
+}
 
 String generateLoginResponse()
 {
   String htmlPage;
   htmlPage.reserve(1024);
 
-  String htmlHeader = F("HTTP/1.1 200 OK\r\n"
+  String httpHeader = F("HTTP/1.1 200 OK\r\n"
                       "Content-Type: text/html\r\n"
                       "Connection: close\r\n"
                       "\r\n");
@@ -661,7 +825,76 @@ String generateLoginResponse()
   String htmlEnd = F("</html>"
                   "\r\n");
 
-  htmlPage = htmlHeader + htmlStyle + htmlStart + htmlForm + htmlEnd;
+  htmlPage = httpHeader + htmlStyle + htmlStart + htmlForm + htmlEnd;
+ 
+  return htmlPage;
+}
+
+// Generate a "not found" web page as a response.
+
+String generatePageNotFoundResponse()
+{
+  String htmlPage;
+  htmlPage.reserve(1024);
+
+  String httpHeader = F("HTTP/1.1 404 OK\r\n"
+                      "Content-Type: text/html\r\n"
+                      "Connection: close\r\n"
+                      "\r\n");
+
+  String htmlStyle = F("<style type=\"text/css\">"
+                        ".fieldset-auto-width {display: inline-block; }"
+                        ".div-auto-width {display: inline-block; }"
+                        ".force-right {text-align: right;}"
+                        "fieldset {text-align: right;}"
+                        "legend {float: left;}"
+                        "input {margin: 2px;}"
+                       "</style>");
+
+  String htmlStart = F("<!DOCTYPE HTML>"
+                      "<html>"
+                      "<head><title>Page not found. </title></head>");
+
+  String htmlEnd = F("</html>"
+                  "\r\n");
+
+  htmlPage = httpHeader + htmlStyle + htmlStart + htmlEnd;
+ 
+  return htmlPage;
+}
+
+// Generate a "redirect" to login web page as a response.
+
+String generateRedirectResponseToLogin()
+{
+  String htmlPage;
+  htmlPage.reserve(1024);
+
+  String httpHeader = F("HTTP/1.1 302 OK\r\n"
+                      "Content-Type: text/html\r\n"
+                      "Connection: close\r\n"
+                      "Location: /login\r\n"
+                      "\r\n");
+
+  htmlPage = httpHeader;
+ 
+  return htmlPage;
+}
+// Generate a "redirect" to root web page as a response.
+
+String generateRedirectResponseToRoot()
+{
+  String htmlPage;
+  htmlPage.reserve(1024);
+
+  String httpHeader = F("HTTP/1.1 302 OK\r\n"
+                      "Content-Type: text/html\r\n"
+                      "Connection: close\r\n"
+                      "Location: /\r\n"
+                      "Set-cookie: sessionId=123456\r\n"
+                      "\r\n");
+
+  htmlPage = httpHeader;
  
   return htmlPage;
 }
@@ -674,7 +907,7 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
   String htmlPage;
   htmlPage.reserve(1024);
 
-  String htmlHeader = F("HTTP/1.1 200 OK\r\n"
+  String httpHeader = F("HTTP/1.1 200 OK\r\n"
                       "Content-Type: text/html\r\n"
                       "Connection: close\r\n"
                       "\r\n");
@@ -705,7 +938,7 @@ String generateResponse(bool relayState, int automationStatus, const Schedule& s
   String htmlEnd = F("</html>"
                   "\r\n");
 
-  htmlPage = htmlHeader + htmlStyle + htmlStart + htmlTitle + htmlSchedule + htmlControl + htmlForm + htmlEnd;
+  htmlPage = httpHeader + htmlStyle + htmlStart + htmlTitle + htmlSchedule + htmlControl + htmlForm + htmlEnd;
  
   return htmlPage;
 }
@@ -757,7 +990,7 @@ String generateLoginForm()
   String htmlFieldSet = F("<fieldset class=\"fieldset-auto-width\">") + htmlFields + F("</fieldset>");
  
   String htmlSubmit =  F("<div class=\"force-right\"><input type=\"submit\" name=\"login\" value=\"Submit\"></div>");
-  htmlForm += F("<form name=\"LOGIN\" action=\"/\" method=\"get\">") + htmlFieldSet + htmlSubmit + F("</form>");
+  htmlForm += F("<form name=\"LOGIN\" action=\"/authenticate\" method=\"post\">") + htmlFieldSet + htmlSubmit + F("</form>");
   htmlForm = F("<div class=\"div-auto-width\">") + htmlForm + F("</div>");
   return htmlForm;
 }
@@ -806,43 +1039,6 @@ String generateForm(const Schedule& schedule)
   return htmlForm;
 }
 
-// Supply a property name.
-// Query collection is a string with format:
-// name0=value0&name1=value1&name2:=value2
-
-String extractQueryValue(const String &queryCollection, const String &propertyName)
-{
-    String value;
-    
-    // Find the name, to extract the value.
-    String propertyMarker = propertyName  + "=";
-    
-    //Serial.print("propertyMarker: "); Serial.println(propertyMarker);
-    //Serial.print("queryCollection: "); Serial.println(queryCollection);
-
-    int propertyIndex = queryCollection.indexOf(propertyMarker);
-    if (propertyIndex != -1)
-    {
-      int valueIndex = propertyIndex + propertyMarker.length();
-      int lineBreakIndex = queryCollection.indexOf('&', valueIndex);
-      if (lineBreakIndex == -1)
-      {
-        // The last property in a file with no final CR/LF 
-        value = queryCollection.substring(valueIndex);
-      }
-      else
-      {
-        // Most properties end in CR/LF. 
-        value = queryCollection.substring(valueIndex, lineBreakIndex);
-      }
-    }
-    else
-    {
-      // Need to fix the file contents if this message occurs.
-      Serial.print(F("Property not found in query: ")); Serial.println(propertyName);
-    }
-    return value;
-}
 
 //---------------------- Section: Application Functions -------------------
 
