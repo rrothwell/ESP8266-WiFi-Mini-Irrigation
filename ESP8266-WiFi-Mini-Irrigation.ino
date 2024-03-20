@@ -77,6 +77,9 @@ bool relayState = RELAY_OFF;
 //---------------------- Section: Realtime Clock -------------------
 
 #define INIT_DATETIME_ON_FIRST_RUN
+// The DS1703 needs to be reset to the current time regularly.
+// So uncomment this line temporarily prior to compilation and download.
+#define FORCE_DATETIME
 
 // Real time clock shield
 // BCD RTC plus 65 bytes of NVRAM and programmable squarewave output (not connected).
@@ -320,7 +323,7 @@ void initRTC()
       isSuccess = false;
       break;
     }
-    delay(100);
+    delay(500);
   }
   
   if (isSuccess)
@@ -337,21 +340,32 @@ void initRTC()
   if (rtc.isrunning())
   {
     Serial.println("RTC is running.");
+#ifdef FORCE_DATETIME
+    applyHostComputerDateTime();
+#endif
   }
   else
   {
     Serial.println("RTC is not running. ");
     Serial.println("Initialise the datetime on new RTC or battery replacement.");
-  #ifdef INIT_DATETIME_ON_FIRST_RUN
-    // Use datetime at time of compilation.
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-  #else
-    // Use datetime as decided by programmer.
-    rtc.adjust(DateTime(2024, 3, 21, 23, 59, 59));
-  #endif
-    Serial.println("RTC time is set.");
+    applyHostComputerDateTime();  
   }
-  Serial.println(currentDate()); Serial.println(currentTime());
+  Serial.print(F("Reading RTC: ")); 
+  Serial.print(currentDate()); Serial.print(F(" ")); Serial.println(currentTime());
+}
+
+void applyHostComputerDateTime()
+{
+#ifdef INIT_DATETIME_ON_FIRST_RUN
+    // Use datetime at time of compilation.
+    DateTime dateTime = DateTime(F(__DATE__), F(__TIME__));
+#else
+    // Use datetime as decided by programmer.
+    DateTime dateTime = DateTime(2024, 3, 21, 23, 59, 59);
+#endif
+    rtc.adjust(dateTime);
+    Serial.print(F("RTC time is reset to: ")); 
+    Serial.print(currentDate()); Serial.print(F(" ")); Serial.println(currentTime());
 }
 
 String currentDate()
