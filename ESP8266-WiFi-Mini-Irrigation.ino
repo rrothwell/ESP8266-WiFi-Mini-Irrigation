@@ -77,6 +77,7 @@ bool relayState = RELAY_OFF;
 //---------------------- Section: Realtime Clock -------------------
 
 #define INIT_DATETIME_ON_FIRST_RUN
+
 // The DS1703 needs to be reset to the current time regularly.
 // So uncomment this line temporarily prior to compilation and then download.
 // #define FORCE_DATETIME
@@ -238,7 +239,8 @@ void loop()
     // Regenerate and send web page regardless of 
     // the validity of the request.
     // Use the stored relay state.
-    browser.println(generateResponse(relayState, automationStatus, currentSchedule));
+    browser.println(generateLoginResponse());
+    //browser.println(generateResponse(relayState, automationStatus, currentSchedule));
 
     Serial.println("Web client disconnected.");
     Serial.println("");
@@ -631,6 +633,39 @@ int handleRequest(WiFiClient &browser, bool &relayState, String &request)
 
 // Generate a web page as a response.
 
+String generateLoginResponse()
+{
+  String htmlPage;
+  htmlPage.reserve(1024);
+
+  String htmlHeader = F("HTTP/1.1 200 OK\r\n"
+                      "Content-Type: text/html\r\n"
+                      "Connection: close\r\n"
+                      "\r\n");
+
+  String htmlStyle = F("<style type=\"text/css\">"
+                        ".fieldset-auto-width {display: inline-block; }"
+                        ".div-auto-width {display: inline-block; }"
+                        ".force-right {text-align: right;}"
+                        "fieldset {text-align: right;}"
+                        "legend {float: left;}"
+                        "input {margin: 2px;}"
+                       "</style>");
+
+  String htmlStart = F("<!DOCTYPE HTML>"
+                      "<html>"
+                      "<head><title>Irrigation Control Authentication</title></head>");
+
+  String htmlForm = generateLoginForm(); 
+
+  String htmlEnd = F("</html>"
+                  "\r\n");
+
+  htmlPage = htmlHeader + htmlStyle + htmlStart + htmlForm + htmlEnd;
+ 
+  return htmlPage;
+}
+
 String generateResponse(bool relayState, int automationStatus, const Schedule& schedule)
 {
   String RELAY_ON_LABEL = F("ON");
@@ -693,6 +728,38 @@ String generateSchedule(const Schedule& schedule)
     htmlSchedule +=  F("<br>") + scheduleItems[itemIndex];
   } 
   return htmlSchedule;
+}
+
+String generateLoginForm()  
+{
+  String htmlForm = F("<br>Login: <br>");
+    
+  String scheduleLabels[] = 
+    {
+      F("&nbsp;User name:&nbsp;"),
+      F("&nbsp;Password:&nbsp;")
+    };
+    
+  String scheduleNames[] = 
+    {
+      F("userName"),
+      F("password")
+    };
+
+  String htmlFields;
+  int itemIndex;
+  int itemCount = sizeof(scheduleLabels)/sizeof(scheduleLabels[0]);
+  for (int itemIndex = 0; itemIndex < itemCount; itemIndex++)
+  {
+    String htmlInput =  F("<input type=\"text\" name=\"") + scheduleNames[itemIndex] + F("\"") + F(" value=\"\">");
+    htmlFields +=  F("<label for=\"") + scheduleNames[itemIndex] + F("\">") + scheduleLabels[itemIndex] + htmlInput  + F("</label>") + F("<br>");
+  } 
+  String htmlFieldSet = F("<fieldset class=\"fieldset-auto-width\">") + htmlFields + F("</fieldset>");
+ 
+  String htmlSubmit =  F("<div class=\"force-right\"><input type=\"submit\" name=\"login\" value=\"Submit\"></div>");
+  htmlForm += F("<form name=\"LOGIN\" action=\"/\" method=\"get\">") + htmlFieldSet + htmlSubmit + F("</form>");
+  htmlForm = F("<div class=\"div-auto-width\">") + htmlForm + F("</div>");
+  return htmlForm;
 }
 
 String generateForm(const Schedule& schedule)  
