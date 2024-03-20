@@ -1,3 +1,5 @@
+//---------------------- Section: Synopsis -------------------
+
 // Copyright 2024 by Richard Rothwell
 // ----------------------------------
 // ESP8266 module on WiFi Mini PCB.
@@ -9,35 +11,18 @@
 //    c) a soil humidity sensor, with 3-wire interface (). This monitors soil conditions.
 //    d) a Real time clock, with I2C interface (DS1307). This is used to schedule watering times.
 
-// Web server to control relay: 
-// https://blog.lindsaystrategic.com/2018/01/04/hw-655-esp-01-relay-board/
-// https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiManualWebServer/WiFiManualWebServer.ino
-// Flash file system.
-// https://arduino-esp8266.readthedocs.io/en/latest/filesystem.html
+//---------------------- Section: Libraries -------------------
 
 #include <ESP8266WiFi.h>
 #include "RTClib.h"
 #include "LittleFS.h"
 
-#define INIT_DATETIME_ON_FIRST_RUN
-
-// The SSID and WiFi password are now loaded from the flash file system.
-// The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool.
-// This tool is installedd into the Arduino IDE. 
-// This tool, at March 2024, needs to be used umder legacy Arduino IDE version 1.8.
-// The file content is a property or INI file like: "SSID: NETGEAR87_EXT\r\lpassword: ######.
-// In other words name/value pairs separated by CR/LF.
-
-// Do not commit to a public repo with valid credentials here.
-String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
-String defaultPassword = "##########"; // fill in here your router or wifi password
-
-String ssid; // fill in here your router or wifi SSID
-String password; // fill in here your router or wifi password
+//---------------------- Section: Microprocessor Hardware -------------------
 
 // Shield pin assignments.
 // Schematic and pinouts.
 // https://lastminuteengineers.com/wemos-d1-mini-pinout-reference/
+
 // Arduino GPIO pin assignments
 
 #define SHIELD_D0 (16)  // GPIO16, Wake from sleep.
@@ -60,15 +45,6 @@ String password; // fill in here your router or wifi password
 #define SHIELD_WAKE (SHIELD_D0)
 #define SHIELD_FLASH (SHIELD_D3)
 
-
-// Real time clock shield
-// BCD RTC plus 65 bytes of NVRAM and programmable squarewave output (not connected).
-// https://abra-electronics.com/robotics-embedded-electronics/wemos/wemos-ds1307-wemos-wifi-d1-mini-shield-rtc-ds1307-real-time-clock-with-battery.html
-
-// Battery is required:CR1220.
-// Modifications to reduce current draw:
-// https://www.instructables.com/Using-the-Wifi-D1-Mini-Real-time-Clock-and-Logger/
-
 // Default I2C pin assignments. Bit banging is used.
 #define RTC_I2C_SCL D1
 #define RTC_I2C_SDA D2
@@ -82,8 +58,7 @@ String password; // fill in here your router or wifi password
 // Analog to digital converter 10 bits.
 #define ADC   A0
 
-// Temperature humidity sensor. 
-// https://lastminuteengineers.com/esp8266-dht11-dht22-web-server-tutorial/
+//---------------------- Section: Relay Output -------------------
 
 // Relay module.
 #define RELAY_PIN SHIELD_D4 // relay connected to  GPIO4
@@ -93,12 +68,59 @@ const bool RELAY_OFF = 0;
 const bool RELAY_ON = 1;
 bool relayState = RELAY_OFF;
 
-// Web server initialisation.
-WiFiServer server(80);
+//---------------------- Section: Humidity Sensor Input -------------------
+
+// Temperature humidity sensor. 
+// https://lastminuteengineers.com/esp8266-dht11-dht22-web-server-tutorial/
+
+
+//---------------------- Section: Realtime Clock -------------------
+
+#define INIT_DATETIME_ON_FIRST_RUN
+
+// Real time clock shield
+// BCD RTC plus 65 bytes of NVRAM and programmable squarewave output (not connected).
+// https://abra-electronics.com/robotics-embedded-electronics/wemos/wemos-ds1307-wemos-wifi-d1-mini-shield-rtc-ds1307-real-time-clock-with-battery.html
+
+// Battery is required:CR1220.
+// Modifications to reduce current draw:
+// https://www.instructables.com/Using-the-Wifi-D1-Mini-Real-time-Clock-and-Logger/
 
 // Realtime clock initialisation.
 String weekDays[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 RTC_DS1307 rtc;
+
+//---------------------- Section: Data Persistence via Flash File System -------------------
+
+// Flash file system.
+// https://arduino-esp8266.readthedocs.io/en/latest/filesystem.html
+
+//---------------------- Section: Local Area Network Connection -------------------
+
+// The SSID and WiFi password are now loaded from the flash file system.
+// The file is config.txt andd it's loaded into flash separately using the "ESP8266 LittleFS Data Upload" tool.
+// This tool is installed into the Arduino IDE. 
+// This tool, at March 2024, needs to be used umder legacy Arduino IDE version 1.8.
+// The file content is a property or INI file like: "SSID: NETGEAR87_EXT\r\lpassword: ######.
+// In other words name/value pairs separated by CR/LF.
+
+// Do not commit to a public repo with valid credentials here.
+String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
+String defaultPassword = "##########"; // fill in here your router or wifi password
+
+String ssid; // fill in here your router or wifi SSID
+String password; // fill in here your router or wifi password
+
+//---------------------- Section: Web Server User Interface -------------------
+
+// Web server to control relay: 
+// https://blog.lindsaystrategic.com/2018/01/04/hw-655-esp-01-relay-board/
+// https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiManualWebServer/WiFiManualWebServer.ino
+
+// Web server initialisation.
+WiFiServer server(80);
+
+//---------------------- Section: Irrigation Application Types and Globals -------------------
 
 // Irrigation schedule initialisation defined in hours.
   typedef struct
@@ -152,7 +174,9 @@ RTC_DS1307 rtc;
   int automationStatus = AUTO;
 
   // #define REPORT_IRRIGATION
- 
+
+ //---------------------- Section: Application Initialisation -------------------
+
 void setup() 
 {
   Schedule schedule;
@@ -175,6 +199,7 @@ void setup()
   }
   // Serial.print("SSID: "); Serial.println(ssid);
   // Serial.print("Password: "); Serial.println(password);
+  
   initRTC(); 
   initWebServer(ssid, password);
   if(validateIrrigationSchedule(schedule))
@@ -189,7 +214,9 @@ void setup()
     abort();
   }
 }
- 
+
+//---------------------- Section: Application Run Loop -------------------
+
 void loop() 
 {
   // Wait for client connection.
@@ -279,6 +306,97 @@ void loop()
   }
 }
 
+//---------------------- Section: Relay Functions -------------------
+
+ // Set the relay state.
+ void switchRelay(bool relayState)
+ {
+    if (relayState == RELAY_ON)  
+    {
+      digitalWrite(RELAY_PIN, HIGH);;
+      Serial.println("RELAY=ON");
+    }
+    else  
+    {
+      digitalWrite(RELAY_PIN, LOW);;
+      Serial.println("RELAY=OFF");
+    }
+ }
+
+//---------------------- Section: Realtime Clock Functions -------------------
+
+void initRTC()
+{
+  Serial.println("RTC begin init.");
+
+  int rtcRetryCount = 5;
+  int rtcRetryIndex = 0;
+
+// Clear I2C comms to RTC after Arduino reset.
+  pinMode(RTC_I2C_SCL,OUTPUT);
+  digitalWrite(RTC_I2C_SCL,LOW);
+  delay(100);
+
+  bool isSuccess = true;
+  while (!rtc.begin())
+  {
+    rtcRetryIndex++;
+    Serial.print("RTC retry. "); Serial.println(rtcRetryIndex);
+    if (rtcRetryIndex >= rtcRetryCount)
+    {
+      isSuccess = false;
+      break;
+    }
+    delay(100);
+  }
+  
+  if (isSuccess)
+  {
+     Serial.println("RTC found. ");
+  }
+  else
+  {
+    Serial.println("RTC not found.");
+    Serial.flush();
+    abort();
+  }
+
+  if (rtc.isrunning())
+  {
+    Serial.println("RTC is running.");
+  }
+  else
+  {
+    Serial.println("RTC is not running. ");
+    Serial.println("Initialise the datetime on new RTC or battery replacement.");
+  #ifdef INIT_DATETIME_ON_FIRST_RUN
+    // Use datetime at time of compilation.
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  #else
+    // Use datetime as decided by programmer.
+    rtc.adjust(DateTime(2024, 3, 21, 23, 59, 59));
+  #endif
+    Serial.println("RTC time is set.");
+  }
+  Serial.println(currentDate()); Serial.println(currentTime());
+}
+
+String currentDate()
+{
+  DateTime now = rtc.now();
+  String current = weekDays[now.dayOfTheWeek()];
+  current += F(" - ") + String(now.year()) + F("/") + now.month()  + F("/") +  now.day();
+  return current;
+}
+
+String currentTime()
+{
+  DateTime now = rtc.now();
+  String current = String(now.hour()) + F(":") + now.minute()  + F(":") +  now.second();
+  return current;
+}
+//---------------------- Section: File System Initialisation -------------------
+
 // Initialise file system.
 // for persistent configuration.
 void initFileSystem()
@@ -291,6 +409,8 @@ void initFileSystem()
   fsConfig.setAutoFormat(false);
   LittleFS.setConfig(fsConfig);  
 }
+
+//---------------------- Section: Configuration File Functions -------------------
 
 // Extract configuration from file system.
 boolean readConfigFromFS(String &ssid, String &password, Schedule &schedule)
@@ -446,129 +566,7 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
     return value;
 }
 
-// Supply a property name.
-// Query collection is a string with format:
-// name0=value0&name1=value1&name2:=value2
-
-String extractQueryValue(const String &queryCollection, const String &propertyName)
-{
-    String value;
-    
-    // Find the name, to extract the value.
-    String propertyMarker = propertyName  + "=";
-    
-    //Serial.print("propertyMarker: "); Serial.println(propertyMarker);
-    //Serial.print("queryCollection: "); Serial.println(queryCollection);
-
-    int propertyIndex = queryCollection.indexOf(propertyMarker);
-    if (propertyIndex != -1)
-    {
-      int valueIndex = propertyIndex + propertyMarker.length();
-      int lineBreakIndex = queryCollection.indexOf('&', valueIndex);
-      if (lineBreakIndex == -1)
-      {
-        // The last property in a file with no final CR/LF 
-        value = queryCollection.substring(valueIndex);
-      }
-      else
-      {
-        // Most properties end in CR/LF. 
-        value = queryCollection.substring(valueIndex, lineBreakIndex);
-      }
-    }
-    else
-    {
-      // Need to fix the file contents if this message occurs.
-      Serial.print(F("Property not found in query: ")); Serial.println(propertyName);
-    }
-    return value;
-}
-
-void initRTC()
-{
-  Serial.println("RTC begin init.");
-
-  int rtcRetryCount = 5;
-  int rtcRetryIndex = 0;
-
-// Clear I2C comms to RTC after Arduino reset.
-  pinMode(RTC_I2C_SCL,OUTPUT);
-  digitalWrite(RTC_I2C_SCL,LOW);
-  delay(100);
-
-  bool isSuccess = true;
-  while (!rtc.begin())
-  {
-    rtcRetryIndex++;
-    Serial.print("RTC retry. "); Serial.println(rtcRetryIndex);
-    if (rtcRetryIndex >= rtcRetryCount)
-    {
-      isSuccess = false;
-      break;
-    }
-    delay(100);
-  }
-  
-  if (isSuccess)
-  {
-     Serial.println("RTC found. ");
-  }
-  else
-  {
-    Serial.println("RTC not found.");
-    Serial.flush();
-    abort();
-  }
-
-  if (rtc.isrunning())
-  {
-    Serial.println("RTC is running.");
-  }
-  else
-  {
-    Serial.println("RTC is not running. ");
-    Serial.println("Initialise the datetime on new RTC or battery replacement.");
-  #ifdef INIT_DATETIME_ON_FIRST_RUN
-    // Use datetime at time of compilation.
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-  #else
-    // Use datetime as decided by programmer.
-    rtc.adjust(DateTime(2024, 3, 21, 23, 59, 59));
-  #endif
-    Serial.println("RTC time is set.");
-  }
-  Serial.println(currentDate()); Serial.println(currentTime());
-}
-
-String currentDate()
-{
-  DateTime now = rtc.now();
-  String current = weekDays[now.dayOfTheWeek()];
-  current += F(" - ") + String(now.year()) + F("/") + now.month()  + F("/") +  now.day();
-  return current;
-}
-
-String currentTime()
-{
-  DateTime now = rtc.now();
-  String current = String(now.hour()) + F(":") + now.minute()  + F(":") +  now.second();
-  return current;
-}
-
- // Set the relay state.
- void switchRelay(bool relayState)
- {
-    if (relayState == RELAY_ON)  
-    {
-      digitalWrite(RELAY_PIN, HIGH);;
-      Serial.println("RELAY=ON");
-    }
-    else  
-    {
-      digitalWrite(RELAY_PIN, LOW);;
-      Serial.println("RELAY=OFF");
-    }
- }
+//---------------------- Section: Web Server Functions -------------------
 
 void initWebServer(const String &ssid, const String &password)
 {
@@ -708,6 +706,46 @@ String generateForm(const Schedule& schedule)
   htmlForm = F("<div class=\"div-auto-width\">") + htmlForm + F("</div>");
   return htmlForm;
 }
+
+// Supply a property name.
+// Query collection is a string with format:
+// name0=value0&name1=value1&name2:=value2
+
+String extractQueryValue(const String &queryCollection, const String &propertyName)
+{
+    String value;
+    
+    // Find the name, to extract the value.
+    String propertyMarker = propertyName  + "=";
+    
+    //Serial.print("propertyMarker: "); Serial.println(propertyMarker);
+    //Serial.print("queryCollection: "); Serial.println(queryCollection);
+
+    int propertyIndex = queryCollection.indexOf(propertyMarker);
+    if (propertyIndex != -1)
+    {
+      int valueIndex = propertyIndex + propertyMarker.length();
+      int lineBreakIndex = queryCollection.indexOf('&', valueIndex);
+      if (lineBreakIndex == -1)
+      {
+        // The last property in a file with no final CR/LF 
+        value = queryCollection.substring(valueIndex);
+      }
+      else
+      {
+        // Most properties end in CR/LF. 
+        value = queryCollection.substring(valueIndex, lineBreakIndex);
+      }
+    }
+    else
+    {
+      // Need to fix the file contents if this message occurs.
+      Serial.print(F("Property not found in query: ")); Serial.println(propertyName);
+    }
+    return value;
+}
+
+//---------------------- Section: Application Functions -------------------
 
 bool updateSchedule(const String &request, Schedule &newSchedule)
 {
