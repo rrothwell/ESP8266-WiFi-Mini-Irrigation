@@ -16,6 +16,8 @@
 #include <ESP8266WiFi.h>
 #include "RTClib.h"
 #include "LittleFS.h"
+#include "PSACrypto.h"
+
 
 //---------------------- Section: Microprocessor Hardware -------------------
 
@@ -115,6 +117,7 @@ String defaultPassword = "##########"; // fill in here your router or wifi passw
 String ssid; // fill in here your router or wifi SSID
 String password; // fill in here your router or wifi password
 
+IPAddress localIPAddress;
 //---------------------- Section: Web Server User Interface -------------------
 
 // Web server to control relay: 
@@ -126,6 +129,7 @@ WiFiServer server(80);
 
 String webUserName;
 String webPassword;
+String sessionIdRepository;
 
 //---------------------- Section: Irrigation Application Types and Globals -------------------
 
@@ -213,7 +217,11 @@ void setup()
   webPassword  = F("passX");
 
   initRTC(); 
-  initNetworkConnection(ssid, password);
+  localIPAddress = initNetworkConnection(ssid, password);
+
+  // Used to generate session id's.
+  psa_crypto_init();
+
   if(validateIrrigationSchedule(schedule))
   {
     currentSchedule = schedule;
@@ -557,8 +565,10 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
 
 //---------------------- Section: Web Server Functions -------------------
 
-void initNetworkConnection(const String &ssid, const String &password)
+IPAddress initNetworkConnection(const String &ssid, const String &password)
 {
+  IPAddress localIPAddress;
+  
   // Connect to WiFi network
   Serial.println();
   Serial.println();
@@ -582,8 +592,11 @@ void initNetworkConnection(const String &ssid, const String &password)
  
   // Print the URL handed out by DHCP.
   // The end user copies and pastes this string into a browser to get started.
+  localIPAddress = WiFi.localIP();
   Serial.print("Browser URL: ");
-  Serial.print("http://"); Serial.print(WiFi.localIP()); Serial.println("/");
+  Serial.print("http://"); Serial.print(localIPAddress); Serial.println("/");
+  
+  return localIPAddress;
 }
 
 // Read browser request.
@@ -663,7 +676,12 @@ int handleRequest(WiFiClient &browser, bool &relayState)
         if (userName == webUserName && password == webPassword)
         {
           // Set session id cookie and send to the root page.
-          browser.println(generateRedirectResponseToRoot());        
+          String sessionId;
+          if(createSessionId(sessionId))
+          {
+            storeSessionId(webUserName, sessionId);
+            browser.println(generateRedirectResponseToRoot(sessionId));        
+          }
         }
         else
         {
@@ -688,8 +706,10 @@ int handleRequest(WiFiClient &browser, bool &relayState)
 }
 
 bool isAuthenticated(WiFiClient &browser)
-{ 
-  return extractCookie(browser).indexOf(F("sessionId=123456")) != -1;
+{
+  String sessionId = retrieveSessionId(webUserName);
+  String sessionMarker = F("sessionId=") + sessionId;
+  return extractCookie(browser).indexOf(sessionMarker) != -1;
 }
 
 String extractTarget(const String &request)
@@ -758,6 +778,67 @@ String extractCookie(WiFiClient &browser)
   return cookieValue;
 }
 
+bool createSessionId(String &result)
+{
+  bool isHashed = true;
+  result = millis(); // Default
+
+  // Define inputs.
+  uint32_t randomNumber = os_random();
+  String inputString = webUserName + localIPAddress.toString() + randomNumber;
+  size_t inputLength = inputString.length();
+  const uint8_t *inputChars =  reinterpret_cast<const uint8_t *>(inputString.c_str());
+  Serial.print(F("Session id input: ")); Serial.println(inputString); 
+
+  // Define outputs.
+  psa_status_t errorCode = PSA_SUCCESS;
+  uint8_t hashResult[32] = {0};
+  size_t hashCount = 0;
+
+  // Calculate.
+  errorCode = psa_hash_compute(PSA_ALG_SHA_256, inputChars, inputLength, hashResult, sizeof(hashResult), &hashCount);
+
+  String resultHex;
+  isHashed = errorCode == PSA_SUCCESS;
+  if (isHashed)
+  {
+    for (int hashIndex = 0; hashIndex < hashCount; hashIndex++)
+    {
+      uint8_t hashChar = hashResult[hashIndex];
+      // Convert into decimal represention and concatenate.
+      hashChar = hashChar < 0x10 ? '0': hashChar;
+      result += hashChar;
+      resultHex += hexString(hashChar) + " ";
+    }
+    // Serial.print(F("Session id hash length: ")); Serial.println(hashCount); 
+    // Serial.print(F("Session id hash bytes: ")); Serial.println(result);
+    // Serial.print(F("Session id hash bytes: ")); Serial.println(resultHex);
+    result = result.substring(0, 32);
+  }
+  else
+  {
+    Serial.print(F("Session id hash error code: ")); Serial.println(errorCode); 
+  }
+  return isHashed;
+}
+
+void storeSessionId(const String &webUserName, const String &sessionId)
+{
+  sessionIdRepository = sessionId;
+}
+
+String retrieveSessionId(const String &webUserName)
+{
+  return sessionIdRepository;
+}
+
+String hexString(const uint8_t byteValue)
+{
+  static char hexChars[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+  int hiNybble = byteValue >> 4;
+  int loNybble = byteValue & 0b00001111;
+  return String(hexChars[hiNybble]) + String(hexChars[loNybble]);
+}
 
 // Supply a property name.
 // Query collection is a string with format:
@@ -882,7 +963,7 @@ String generateRedirectResponseToLogin()
 }
 // Generate a "redirect" to root web page as a response.
 
-String generateRedirectResponseToRoot()
+String generateRedirectResponseToRoot(const String &sessionId)
 {
   String htmlPage;
   htmlPage.reserve(1024);
@@ -890,9 +971,9 @@ String generateRedirectResponseToRoot()
   String httpHeader = F("HTTP/1.1 302 OK\r\n"
                       "Content-Type: text/html\r\n"
                       "Connection: close\r\n"
-                      "Location: /\r\n"
-                      "Set-cookie: sessionId=123456\r\n"
-                      "\r\n");
+                      "Location: /\r\n");
+  httpHeader += F("Set-cookie: sessionId=") + sessionId + F("\r\n");
+  httpHeader += F("\r\n");
 
   htmlPage = httpHeader;
  
