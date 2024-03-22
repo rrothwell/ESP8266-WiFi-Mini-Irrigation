@@ -115,7 +115,7 @@ String defaultSsid = "NETGEAR87_EXT"; // fill in here your router or wifi SSID
 String defaultPassword = "##########"; // fill in here your router or wifi password
 
 String ssid; // fill in here your router or wifi SSID
-String password; // fill in here your router or wifi password
+String wifiPassword; // fill in here your router or wifi password
 
 IPAddress localIPAddress;
 //---------------------- Section: Web Server User Interface -------------------
@@ -131,9 +131,22 @@ String webUserName;
 String webPassword;
 String sessionIdRepository;
 
+// Web user record.
+typedef struct
+{
+  const char* userName;
+  const char* passwordHash;
+  const char* sessionId;
+  const char* sessionExpiryDateTime;
+} UserRecord; 
+
+UserRecord userRecords[] = {
+   {"admin", ""}
+};
+
 //---------------------- Section: Irrigation Application Types and Globals -------------------
 
-// Irrigation schedule initialisation defined in hours.
+  // Irrigation schedule initialisation defined in hours.
   typedef struct
   {
     int begin;
@@ -204,23 +217,50 @@ void setup()
   switchRelay(relayState);
   
   initFileSystem();
-  if (!readConfigFromFS(ssid, password, schedule))
+  if (!readConfigFromFS(ssid, wifiPassword, schedule))
   {
     ssid = defaultSsid;
-    password = defaultPassword;
+    wifiPassword = defaultPassword;
     schedule = defaultSchedule;
   }
   // Serial.print("SSID: "); Serial.println(ssid);
-  // Serial.print("Password: "); Serial.println(password);
+  // Serial.print("Password: "); Serial.println(wifiPassword);
+
+  // PSA Crypto is used to generate session id's and password hashes.
+  // If this is not done a -137 error code is returned.
+  psa_crypto_init();
 
   webUserName  = F("userX");
   webPassword  = F("passX");
+  
+  String hashedPassword;
+  bool isHashed = hasher(webPassword, hashedPassword);
+  if(isHashed)
+  {
+    const char *webUserNames[] = {webUserName.c_str()};
+    String userDetails = hashedPassword;
+    const char *webUserDetails[] = {userDetails.c_str()};
+    writeCredentialsToFS(webUserNames, webUserDetails);
+  }
+  else
+  {
+     Serial.println(F("Failed web password hash. ")); 
+  }
+
+  // Verify by reading the hash back.
+  String userDetails;
+  if (readCredentialsFromFS(webUserName, userDetails))
+  {
+    Serial.print(F("Loaded password hash: ")); Serial.println(userDetails);
+  }
+  else
+  {
+    Serial.println(F("Failed to load password hash. ")); 
+  }
 
   initRTC(); 
-  localIPAddress = initNetworkConnection(ssid, password);
+  localIPAddress = initNetworkConnection(ssid, wifiPassword);
 
-  // Used to generate session id's.
-  psa_crypto_init();
 
   if(validateIrrigationSchedule(schedule))
   {
@@ -270,7 +310,7 @@ void loop()
         Schedule schedule;
         if(updateSchedule(request, schedule))
         {
-          if(writeConfigToFS(ssid, password, schedule))
+          if(writeConfigToFS(ssid, wifiPassword, schedule))
           {
             currentSchedule = schedule;
             initIrrigationSchedule(currentSchedule);
@@ -410,7 +450,7 @@ void initFileSystem()
 //---------------------- Section: Configuration File Functions -------------------
 
 // Extract configuration from file system.
-boolean readConfigFromFS(String &ssid, String &password, Schedule &schedule)
+boolean readConfigFromFS(String &ssid, String &wifiPassword, Schedule &schedule)
 {
   boolean isConfigFileValid = false;
   bool isFSMounted = LittleFS.begin();
@@ -426,7 +466,7 @@ boolean readConfigFromFS(String &ssid, String &password, Schedule &schedule)
         fileContents += static_cast<char>(fileHandle.read());
       }
       ssid = extractPropertyValue(fileContents, "SSID");
-      password = extractPropertyValue(fileContents, "password");
+      wifiPassword = extractPropertyValue(fileContents, "password");
       
       String irrigationBeginHoursStr = extractPropertyValue(fileContents, "irrigationBeginHours");
       String irrigationDurationHoursStr = extractPropertyValue(fileContents, "irrigationDurationHours");
@@ -458,9 +498,9 @@ boolean readConfigFromFS(String &ssid, String &password, Schedule &schedule)
   return isConfigFileValid;
 }
 
-// Write configuration from flash file system.
+// Write configuration to flash file system.
 // Could also use the nvram in the clock chip or an SD card.
-boolean writeConfigToFS(const String &ssid, const String &password, const Schedule &schedule)
+boolean writeConfigToFS(const String &ssid, const String &wifiPassword, const Schedule &schedule)
 {
   boolean isConfigFileValid = false;
   bool isFSMounted = LittleFS.begin();
@@ -472,7 +512,7 @@ boolean writeConfigToFS(const String &ssid, const String &password, const Schedu
       String fileContents;
 
       fileContents += createPropertyValue(F("SSID"), ssid);
-      fileContents += createPropertyValue(F("password"), password);
+      fileContents += createPropertyValue(F("password"), wifiPassword);
       
       fileContents += createPropertyValue(F("irrigationBeginHours"), schedule.irrigationBeginHours);
       fileContents += createPropertyValue(F("irrigationDurationHours"), schedule.irrigationDurationHours);
@@ -493,7 +533,7 @@ boolean writeConfigToFS(const String &ssid, const String &password, const Schedu
     }
     else
     {
-      Serial.println("File open failed. ");
+      Serial.println("Configuration file open failed. ");
     }
   }
   else
@@ -504,6 +544,92 @@ boolean writeConfigToFS(const String &ssid, const String &password, const Schedu
   };
   return isConfigFileValid;
 }
+
+//---------------------- Section: Credential Functions -------------------
+
+// Extract configuration from file system.
+boolean readCredentialsFromFS(const String &webUserName, String &userDetails)
+{
+  // Serial.print("Read input user details: "); Serial.println(userDetails); 
+  boolean isCredentialsFileValid = false;
+  bool isFSMounted = LittleFS.begin();
+  if (isFSMounted)
+  {
+    File fileHandle = LittleFS.open(F("users.txt"), "r");
+    if (fileHandle)
+    {
+      String fileContents;
+      // Read an byte as an int at a time, then treat it as a char.
+      while (fileHandle.available())
+      {
+        fileContents += static_cast<char>(fileHandle.read());
+      }
+      userDetails = extractPropertyValue(fileContents, webUserName);
+ 
+      //Serial.print("Stored password hash: "); Serial.println(userDetails); 
+      isCredentialsFileValid = true;
+    }
+    else
+    {
+      Serial.println("Credentials file open failed. ");
+    }
+  }
+  else
+  {
+    Serial.println(F("Unable to mount flash file system."));
+    Serial.flush();
+    abort();
+  };
+  return isCredentialsFileValid;
+}
+
+// Write credentials to flash file system.
+// Could also use the nvram in the clock chip or an SD card.
+boolean writeCredentialsToFS(const char *webUserNames[], const char *webUserDetails[])
+{
+  boolean isCredentialsFileValid = false;
+  bool isFSMounted = LittleFS.begin();
+  if (isFSMounted)
+  {
+    File fileHandle = LittleFS.open(F("users.txt"), "w");
+    if (fileHandle)
+    {
+      String fileContents;
+      int userNameCount = sizeof(webUserNames) > 0 ? sizeof(webUserNames)/sizeof(webUserNames[0]) : 0; 
+      for (int userNameIndex = 0; userNameIndex < userNameCount; userNameIndex++)
+      {
+        const char *webUserName = webUserNames[userNameIndex];
+        const char *webUserDetail = webUserDetails[userNameIndex];
+        fileContents += createPropertyValue(webUserName, webUserDetail);
+      }
+
+      //Serial.print("File contents: "); Serial.println(fileContents);
+
+      // Write whole contents.
+      if(fileHandle.print(fileContents.c_str()))
+      {
+        isCredentialsFileValid = true;
+      }
+      else
+      {
+         Serial.println("Credentials write failed");
+      }
+    }
+    else
+    {
+      Serial.println("Credentials file open failed. ");
+    }
+  }
+  else
+  {
+    Serial.println(F("Unable to mount flash file system."));
+    Serial.flush();
+    abort();
+  };
+  return isCredentialsFileValid;
+}
+
+//---------------------- Section: File Utilities -------------------
 
 // Generate a property name/value pair as a string.
 // Property collection is a string with format:
@@ -565,7 +691,7 @@ String extractPropertyValue(const String &propertyCollection, const String &prop
 
 //---------------------- Section: Web Server Functions -------------------
 
-IPAddress initNetworkConnection(const String &ssid, const String &password)
+IPAddress initNetworkConnection(const String &ssid, const String &wifiPassword)
 {
   IPAddress localIPAddress;
   
@@ -575,7 +701,7 @@ IPAddress initNetworkConnection(const String &ssid, const String &password)
   Serial.print("Connecting to: "); Serial.println(ssid);
  
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid, wifiPassword);
  
   // Poll for connection.
   while (WiFi.status() != WL_CONNECTED) 
@@ -673,20 +799,39 @@ int handleRequest(WiFiClient &browser, bool &relayState)
         String body = extractPostQuery(browser);
         String userName = extractQueryValue(body, F("userName"));
         String password = extractQueryValue(body, F("password"));
-        if (userName == webUserName && password == webPassword)
+
+        String knownHash;
+        boolean foundCredentials = readCredentialsFromFS(userName, knownHash);       
+        if (foundCredentials)
         {
-          // Set session id cookie and send to the root page.
-          String sessionId;
-          if(createSessionId(sessionId))
-          {
-            storeSessionId(webUserName, sessionId);
-            browser.println(generateRedirectResponseToRoot(sessionId));        
+          String passwordHash;
+          bool isHashed = hasher(password, passwordHash);
+          if(isHashed)
+          { 
+            Serial.println(F("Match hashed passwords: ")); 
+            Serial.print(knownHash);  Serial.println(F("<->")); 
+            Serial.println(passwordHash);
+            
+             if (knownHash == passwordHash)
+            {
+              // Set session id cookie and send to the root page.
+              String sessionId;
+              if(createSessionId(sessionId))
+              {
+                storeSessionId(webUserName, sessionId);
+                browser.println(generateRedirectResponseToRoot(sessionId));        
+              }
+              else
+              {
+                // Send to the login page.
+                browser.println(generateRedirectResponseToLogin());        
+              }
+            }
           }
-        }
-        else
-        {
-          // Send to the login page.
-          browser.println(generateRedirectResponseToLogin());        
+          else
+          {
+             Serial.print(F("Failed web password hash. ")); 
+          }
         }
       }
       else
@@ -708,8 +853,9 @@ int handleRequest(WiFiClient &browser, bool &relayState)
 bool isAuthenticated(WiFiClient &browser)
 {
   String sessionId = retrieveSessionId(webUserName);
-  String sessionMarker = F("sessionId=") + sessionId;
-  return extractCookie(browser).indexOf(sessionMarker) != -1;
+  String cookie = extractCookie(browser);
+  Serial.print(F("Cookie from request: ")); Serial.println(cookie); 
+  return sessionId.length() > 0 && cookie.indexOf(sessionId) != -1;
 }
 
 String extractTarget(const String &request)
@@ -780,15 +926,26 @@ String extractCookie(WiFiClient &browser)
 
 bool createSessionId(String &result)
 {
-  bool isHashed = true;
-  result = millis(); // Default
-
-  // Define inputs.
   uint32_t randomNumber = os_random();
   String inputString = webUserName + localIPAddress.toString() + randomNumber;
+  bool isHashed = hasher(inputString, result);
+  if(!isHashed)
+  {
+    Serial.print(F("Session id input: ")); Serial.println(inputString); 
+  }
+  result = result.substring(0, 32);
+  return isHashed;
+}
+
+bool hasher(const String &inputString, String &result)
+{
+  bool isHashed = true;
+
+  Serial.print(F("Hash input: ")); Serial.println(inputString); 
+
+  // Define inputs.
   size_t inputLength = inputString.length();
   const uint8_t *inputChars =  reinterpret_cast<const uint8_t *>(inputString.c_str());
-  Serial.print(F("Session id input: ")); Serial.println(inputString); 
 
   // Define outputs.
   psa_status_t errorCode = PSA_SUCCESS;
@@ -798,7 +955,6 @@ bool createSessionId(String &result)
   // Calculate.
   errorCode = psa_hash_compute(PSA_ALG_SHA_256, inputChars, inputLength, hashResult, sizeof(hashResult), &hashCount);
 
-  String resultHex;
   isHashed = errorCode == PSA_SUCCESS;
   if (isHashed)
   {
@@ -806,18 +962,12 @@ bool createSessionId(String &result)
     {
       uint8_t hashChar = hashResult[hashIndex];
       // Convert into decimal represention and concatenate.
-      hashChar = hashChar < 0x10 ? '0': hashChar;
       result += hashChar;
-      resultHex += hexString(hashChar) + " ";
     }
-    // Serial.print(F("Session id hash length: ")); Serial.println(hashCount); 
-    // Serial.print(F("Session id hash bytes: ")); Serial.println(result);
-    // Serial.print(F("Session id hash bytes: ")); Serial.println(resultHex);
-    result = result.substring(0, 32);
   }
   else
   {
-    Serial.print(F("Session id hash error code: ")); Serial.println(errorCode); 
+    Serial.print(F("Hash error code: ")); Serial.println(errorCode); 
   }
   return isHashed;
 }
@@ -829,6 +979,10 @@ void storeSessionId(const String &webUserName, const String &sessionId)
 
 String retrieveSessionId(const String &webUserName)
 {
+//  String webPasswordHash;
+//  readCredentialsFromFS(webUserName, webPasswordHash);
+//  return webPasswordHash;
+  Serial.print(F("Stored session id: ")); Serial.println(sessionIdRepository); 
   return sessionIdRepository;
 }
 
@@ -1036,7 +1190,11 @@ String generateSchedule(const Schedule& schedule)
     };
 
   int itemIndex;
-  int itemCount = sizeof(scheduleItems)/sizeof(scheduleItems[0]);
+  int itemCount = 0;
+  if (sizeof(scheduleItems) > 0)
+  {
+    itemCount = sizeof(scheduleItems)/sizeof(scheduleItems[0]);
+  }
   for (int itemIndex = 0; itemIndex < itemCount; itemIndex++)
   {
     htmlSchedule +=  F("<br>") + scheduleItems[itemIndex];
@@ -1062,7 +1220,11 @@ String generateLoginForm()
 
   String htmlFields;
   int itemIndex;
-  int itemCount = sizeof(scheduleLabels)/sizeof(scheduleLabels[0]);
+  int itemCount = 0;
+  if (sizeof(scheduleLabels) > 0)
+  {
+    itemCount = sizeof(scheduleLabels)/sizeof(scheduleLabels[0]);
+  }
   for (int itemIndex = 0; itemIndex < itemCount; itemIndex++)
   {
     String htmlInput =  F("<input type=\"text\" name=\"") + scheduleNames[itemIndex] + F("\"") + F(" value=\"\">");
