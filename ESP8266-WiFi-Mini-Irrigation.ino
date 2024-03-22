@@ -127,9 +127,21 @@ IPAddress localIPAddress;
 // Web server initialisation.
 WiFiServer server(80);
 
+const int sessionLifetimeMinutes = 5;
+
 String webUserName;
 String webPassword;
 String sessionIdRepository;
+DateTime sessionTimeStamp;
+
+// Web user record.
+typedef struct
+{
+  String id;
+  DateTime timeStamp;
+} UserSession;
+ 
+UserSession sessionRepository;
 
 // Web user record.
 typedef struct
@@ -797,6 +809,7 @@ int handleRequest(WiFiClient &browser, bool &relayState)
       else if (target == F("/authenticate"))
       {
         String body = extractPostQuery(browser);
+        Serial.print(F("Login post: ")); Serial.println(body); 
         String userName = extractQueryValue(body, F("userName"));
         String password = extractQueryValue(body, F("password"));
 
@@ -812,7 +825,7 @@ int handleRequest(WiFiClient &browser, bool &relayState)
             Serial.print(knownHash);  Serial.println(F("<->")); 
             Serial.println(passwordHash);
             
-             if (knownHash == passwordHash)
+            if (knownHash == passwordHash)
             {
               // Set session id cookie and send to the root page.
               String sessionId;
@@ -826,6 +839,11 @@ int handleRequest(WiFiClient &browser, bool &relayState)
                 // Send to the login page.
                 browser.println(generateRedirectResponseToLogin());        
               }
+            }
+            else
+            {
+              // Send to the login page.
+              browser.println(generateRedirectResponseToLogin());        
             }
           }
           else
@@ -852,10 +870,38 @@ int handleRequest(WiFiClient &browser, bool &relayState)
 
 bool isAuthenticated(WiFiClient &browser)
 {
-  String sessionId = retrieveSessionId(webUserName);
+  // Always process the header regardless 
   String cookie = extractCookie(browser);
-  Serial.print(F("Cookie from request: ")); Serial.println(cookie); 
-  return sessionId.length() > 0 && cookie.indexOf(sessionId) != -1;
+
+  bool isAuthed = false;
+  DateTime timeStamp;
+  String sessionId = retrieveSessionId(webUserName, timeStamp);
+  if (sessionId.length() > 0)
+  {
+    TimeSpan duration = TimeSpan(0, 0, sessionLifetimeMinutes, 0);
+    DateTime sessionTimeEnd = timeStamp + duration;
+    //Serial.print(F("Duration: ")); Serial.println(sessionLifetimeMinutes); 
+
+    char endTimeBuffer[] = "hh:mm:ss";
+    sessionTimeEnd.toString(endTimeBuffer);
+    Serial.print(F("Session time end: ")); Serial.println(endTimeBuffer);
+     
+    DateTime currentTime = rtc.now();
+    char currentTimeBuffer[] = "hh:mm:ss";
+    currentTime.toString(currentTimeBuffer);
+    Serial.print(F("Current time: ")); Serial.println(currentTimeBuffer); 
+    
+    if (currentTime < sessionTimeEnd)
+    {
+        Serial.print(F("Cookie from request: ")); Serial.println(cookie); 
+        isAuthed = cookie.indexOf(sessionId) != -1;
+    }
+    else
+    {
+      Serial.print(F("Session timed out. ")); 
+    }
+  }
+  return isAuthed;
 }
 
 String extractTarget(const String &request)
@@ -864,7 +910,7 @@ String extractTarget(const String &request)
   int indexEndTarget = request.indexOf(F(" "), indexStartTarget);
   String target = request.substring(indexStartTarget, indexEndTarget);
   Serial.print(F("Range: ")); Serial.print(indexStartTarget); Serial.print(F(" to ")); Serial.println(indexEndTarget); 
-  Serial.print(F("Target: ")); Serial.println(target);
+  Serial.print(F("Target: ")); Serial.println(target);   
   return target;
 }
 
@@ -975,14 +1021,16 @@ bool hasher(const String &inputString, String &result)
 void storeSessionId(const String &webUserName, const String &sessionId)
 {
   sessionIdRepository = sessionId;
+  sessionTimeStamp = rtc.now();
 }
 
-String retrieveSessionId(const String &webUserName)
+String retrieveSessionId(const String &webUserName, DateTime &timeStamp)
 {
 //  String webPasswordHash;
 //  readCredentialsFromFS(webUserName, webPasswordHash);
 //  return webPasswordHash;
-  Serial.print(F("Stored session id: ")); Serial.println(sessionIdRepository); 
+  Serial.print(F("Stored session id: ")); Serial.println(sessionIdRepository);
+  timeStamp = sessionTimeStamp;
   return sessionIdRepository;
 }
 
